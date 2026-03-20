@@ -7,9 +7,9 @@ read_when:
 title: "browser"
 ---
 
-# `openclaw browser`
+# `trident browser`
 
-Manage OpenClaw’s browser control server and run browser actions (tabs, snapshots, screenshots, navigation, clicks, typing).
+Manage Trident’s browser control server and run browser actions (tabs, snapshots, screenshots, navigation, clicks, typing).
 
 Related:
 
@@ -27,11 +27,27 @@ Related:
 ## Quick start (local)
 
 ```bash
-openclaw browser profiles
-openclaw browser --browser-profile openclaw start
-openclaw browser --browser-profile openclaw open https://example.com
-openclaw browser --browser-profile openclaw snapshot
+trident browser setup tauri --app-command ./src-tauri/target/debug/my-app
+trident browser setup playwright
+trident browser doctor
+trident browser profiles
+trident browser --browser-profile openclaw start
+trident browser --browser-profile openclaw open https://example.com
+trident browser --browser-profile openclaw snapshot
 ```
+
+## Tauri / WebDriver setup
+
+Use a dedicated managed profile for native Tauri app testing:
+
+```bash
+trident browser setup tauri --app-command ./src-tauri/target/debug/my-app
+trident browser doctor
+trident browser --browser-profile tauri start
+trident browser --browser-profile tauri status
+```
+
+Tauri WebDriver profiles are for native desktop app lifecycle/status. Use Playwright/CDP browser profiles for browser snapshots, screenshots, traces, and ref-based browser actions.
 
 ## Profiles
 
@@ -42,24 +58,24 @@ Profiles are named browser routing configs. In practice:
 - `chrome-relay`: controls your existing Chrome tab(s) via the Chrome extension relay.
 
 ```bash
-openclaw browser profiles
-openclaw browser create-profile --name work --color "#FF5A36"
-openclaw browser delete-profile --name work
+trident browser profiles
+trident browser create-profile --name work --color "#FF5A36"
+trident browser delete-profile --name work
 ```
 
 Use a specific profile:
 
 ```bash
-openclaw browser --browser-profile work tabs
+trident browser --browser-profile work tabs
 ```
 
 ## Tabs
 
 ```bash
-openclaw browser tabs
-openclaw browser open https://docs.openclaw.ai
-openclaw browser focus <targetId>
-openclaw browser close <targetId>
+trident browser tabs
+trident browser open https://docs.openclaw.ai
+trident browser focus <targetId>
+trident browser close <targetId>
 ```
 
 ## Snapshot / screenshot / actions
@@ -67,21 +83,21 @@ openclaw browser close <targetId>
 Snapshot:
 
 ```bash
-openclaw browser snapshot
+trident browser snapshot
 ```
 
 Screenshot:
 
 ```bash
-openclaw browser screenshot
+trident browser screenshot
 ```
 
 Navigate/click/type (ref-based UI automation):
 
 ```bash
-openclaw browser navigate https://example.com
-openclaw browser click <ref>
-openclaw browser type <ref> "hello"
+trident browser navigate https://example.com
+trident browser click <ref>
+trident browser type <ref> "hello"
 ```
 
 ## Chrome extension relay (attach via toolbar button)
@@ -91,8 +107,8 @@ This mode lets the agent control an existing Chrome tab that you attach manually
 Install the unpacked extension to a stable path:
 
 ```bash
-openclaw browser extension install
-openclaw browser extension path
+trident browser extension install
+trident browser extension path
 ```
 
 Then Chrome → `chrome://extensions` → enable “Developer mode” → “Load unpacked” → select the printed folder.

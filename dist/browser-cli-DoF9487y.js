@@ -2,7 +2,7 @@ import { p as defaultRuntime, v as danger, y as info } from "./subsystem-BDbeCph
 import { g as resolveStateDir } from "./paths-dQ_clcF4.js";
 import { r as theme } from "./theme-H80Q3Qtv.js";
 import { t as parseBooleanValue } from "./boolean-DTgd5CzD.js";
-import { G as formatHelpExamples, Nm as normalizeBrowserFormField, Om as DEFAULT_UPLOAD_DIR, Pm as normalizeBrowserFormFieldValue, jg as loadConfig, km as resolveExistingPathsWithinRoot, vm as movePathToTrash } from "./auth-profiles-DRjqKE3G.js";
+import { G as formatHelpExamples, Nm as normalizeBrowserFormField, Om as DEFAULT_UPLOAD_DIR, Pm as normalizeBrowserFormFieldValue, Rg as writeConfigFile, jg as loadConfig, km as resolveExistingPathsWithinRoot, vm as movePathToTrash } from "./auth-profiles-DRjqKE3G.js";
 import { t as formatCliCommand } from "./command-format-BTnLVWI8.js";
 import "./agent-scope-CZIF93u7.js";
 import { x as shortenHomePath } from "./utils-B88a096J.js";
@@ -33,6 +33,7 @@ import { n as inheritOptionFromParent } from "./command-options-DqfI-XB8.js";
 import { n as callGatewayFromCli, t as addGatewayClientOptions } from "./gateway-rpc-DDuWmIVq.js";
 import { t as copyToClipboard } from "./clipboard-DdXYJG5v.js";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
 //#region src/cli/browser-cli-shared.ts
@@ -707,6 +708,9 @@ function registerBrowserDebugCommands(browser, parentOpts) {
 //#endregion
 //#region src/cli/browser-cli-examples.ts
 const browserCoreExamples = [
+	"trident browser setup tauri --app-command ./src-tauri/target/debug/my-app",
+	"trident browser setup playwright",
+	"trident browser doctor",
 	"trident browser status",
 	"trident browser start",
 	"trident browser stop",
@@ -741,6 +745,176 @@ const browserActionExamples = [
 	"trident browser console --level error",
 	"trident browser pdf"
 ];
+//#endregion
+//#region src/cli/browser-cli-setup.ts
+function isExecutableFile(targetPath) {
+	try {
+		fs.accessSync(targetPath, fs.constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
+}
+function commandExists(command) {
+	const trimmed = typeof command === "string" ? command.trim() : "";
+	if (!trimmed) return false;
+	if (trimmed.includes(path.sep)) return isExecutableFile(trimmed);
+	for (const entry of (process.env.PATH ?? "").split(path.delimiter)) {
+		const candidate = path.join(entry, trimmed);
+		if (isExecutableFile(candidate)) return true;
+		if (process.platform === "win32") {
+			for (const ext of [".exe", ".cmd", ".bat"]) if (isExecutableFile(`${candidate}${ext}`)) return true;
+		}
+	}
+	return false;
+}
+function pushOptionValue(value, previous = []) {
+	previous.push(value);
+	return previous;
+}
+function defaultTauriNativeDriverCommand() {
+	if (process.platform === "linux") return "WebKitWebDriver";
+	if (process.platform === "win32") return "msedgedriver";
+	return "";
+}
+function buildManagedCommandConfig(command, args, cwd) {
+	if (typeof command !== "string" || !command.trim()) return;
+	return {
+		command: command.trim(),
+		...Array.isArray(args) && args.length > 0 ? { args } : {},
+		...typeof cwd === "string" && cwd.trim() ? { cwd: cwd.trim() } : {}
+	};
+}
+function formatBrowserDoctorSection(title, lines) {
+	return `${theme.heading(title)}\n${lines.join("\n")}`;
+}
+async function runPlaywrightDoctor() {
+	try {
+		const playwright = await import("playwright");
+		const version = playwright?.chromium?.version?.() || playwright?.default?.chromium?.version?.() || "installed";
+		return {
+			ok: true,
+			lines: [
+				`- status: ready`,
+				`- playwright: ${version}`
+			]
+		};
+	} catch (err) {
+		return {
+			ok: false,
+			lines: [
+				`- status: missing`,
+				`- fix: install the full \`playwright\` package and restart the gateway`
+			],
+			error: String(err)
+		};
+	}
+}
+function collectTauriProfileDiagnostics(profileName, profile) {
+	const managed = profile?.managed !== false;
+	const tauriCommand = profile?.tauriDriver?.command?.trim() || "tauri-driver";
+	const nativeCommand = profile?.nativeDriver?.command?.trim() || defaultTauriNativeDriverCommand();
+	const appCommand = profile?.app?.command?.trim() || "";
+	const lines = [
+		`- profile: ${profileName}`,
+		`- webdriverUrl: ${profile?.webdriverUrl ?? "(unset)"}`,
+		`- managed: ${managed}`
+	];
+	let ok = true;
+	if (!profile?.webdriverUrl) {
+		lines.push(`- error: webdriverUrl is missing`);
+		ok = false;
+	}
+	if (process.platform === "darwin") {
+		lines.push(`- error: managed Tauri WebDriver is not supported on macOS`);
+		ok = false;
+	} else {
+		lines.push(`- tauri-driver: ${tauriCommand} ${commandExists(tauriCommand) ? "(found)" : "(missing)"}`);
+		if (!commandExists(tauriCommand)) ok = false;
+		lines.push(`- native-driver: ${nativeCommand || "(unset)"} ${nativeCommand && commandExists(nativeCommand) ? "(found)" : "(missing)"}`);
+		if (!nativeCommand || !commandExists(nativeCommand)) ok = false;
+	}
+	if (managed) {
+		lines.push(`- app.command: ${appCommand || "(unset)"}`);
+		if (!appCommand) ok = false;
+	}
+	return { ok, lines };
+}
+function registerBrowserSetupCommands(browser) {
+	const setup = browser.command("setup").description("Configure GUI testing transports without requiring the gateway");
+	setup.command("playwright").description("Verify Playwright support for browser/CDP automation").action(async () => {
+		const report = await runPlaywrightDoctor();
+		defaultRuntime.log(formatBrowserDoctorSection("Playwright", report.lines));
+		if (!report.ok) defaultRuntime.exit(1);
+	});
+	setup.command("tauri").description("Create a managed Tauri WebDriver browser profile").option("--name <name>", "Profile name", "tauri").requiredOption("--app-command <command>", "Command to launch the Tauri app under test").option("--app-arg <arg>", "Repeat to pass app arguments", pushOptionValue, []).option("--app-cwd <path>", "Working directory for the Tauri app").option("--webdriver-url <url>", "WebDriver URL", "http://127.0.0.1:4444").option("--tauri-driver-command <command>", "tauri-driver command", "tauri-driver").option("--tauri-driver-arg <arg>", "Repeat to pass tauri-driver args", pushOptionValue, []).option("--native-driver-command <command>", "Platform WebDriver command", defaultTauriNativeDriverCommand()).option("--native-driver-arg <arg>", "Repeat to pass native driver args", pushOptionValue, []).option("--color <hex>", "Profile color", "#00AA00").option("--no-set-default", "Do not set this as browser.defaultProfile").option("--force", "Overwrite an existing profile with the same name", false).action(async (opts) => {
+		const name = String(opts.name ?? "").trim();
+		if (!/^[a-z0-9-]+$/.test(name)) {
+			defaultRuntime.error(danger("Profile name must use lowercase letters, numbers, and hyphens only."));
+			defaultRuntime.exit(1);
+			return;
+		}
+		if (process.platform === "darwin") {
+			defaultRuntime.error(danger("Managed Tauri WebDriver setup is not supported on macOS. Use Playwright/browser profiles instead."));
+			defaultRuntime.exit(1);
+			return;
+		}
+		const cfg = loadConfig();
+		const profiles = cfg.browser?.profiles ?? {};
+		if (profiles[name] && opts.force !== true) {
+			defaultRuntime.error(danger(`Profile "${name}" already exists. Re-run with --force to replace it.`));
+			defaultRuntime.exit(1);
+			return;
+		}
+		const nextProfiles = {
+			...profiles,
+			[name]: {
+				driver: "tauri-webdriver",
+				webdriverUrl: String(opts.webdriverUrl).trim(),
+				managed: true,
+				color: String(opts.color).trim() || "#00AA00",
+				app: buildManagedCommandConfig(opts.appCommand, opts.appArg, opts.appCwd),
+				tauriDriver: buildManagedCommandConfig(opts.tauriDriverCommand, opts.tauriDriverArg),
+				nativeDriver: buildManagedCommandConfig(opts.nativeDriverCommand, opts.nativeDriverArg)
+			}
+		};
+		await writeConfigFile({
+			...cfg,
+			browser: {
+				...cfg.browser,
+				...(opts.setDefault !== false ? { defaultProfile: name } : {}),
+				profiles: nextProfiles
+			}
+		});
+		const diagnostics = collectTauriProfileDiagnostics(name, nextProfiles[name]);
+		defaultRuntime.log([
+			theme.heading("Tauri Profile Created"),
+			`- profile: ${name}`,
+			`- transport: webdriver`,
+			`- driver: tauri-webdriver`,
+			`- webdriverUrl: ${opts.webdriverUrl}`,
+			...(opts.setDefault !== false ? [`- defaultProfile: ${name}`] : []),
+			`- validate: trident browser doctor`,
+			`- start: trident browser --browser-profile ${name} start`,
+			`- status: trident browser --browser-profile ${name} status`,
+			"",
+			...diagnostics.lines
+		].join("\n"));
+	});
+	browser.command("doctor").description("Validate Playwright and Tauri WebDriver browser setup").action(async () => {
+		const cfg = loadConfig();
+		const reports = [];
+		const playwright = await runPlaywrightDoctor();
+		reports.push(formatBrowserDoctorSection("Playwright", playwright.lines));
+		const profiles = Object.entries(cfg.browser?.profiles ?? {}).filter(([, profile]) => profile?.driver === "tauri-webdriver");
+		if (profiles.length === 0) reports.push(formatBrowserDoctorSection("Tauri WebDriver", ["- status: no tauri-webdriver profiles configured"]));
+		else {
+			for (const [name, profile] of profiles) reports.push(formatBrowserDoctorSection("Tauri WebDriver", collectTauriProfileDiagnostics(name, profile).lines));
+		}
+		defaultRuntime.log(reports.join("\n\n"));
+		if (!playwright.ok || profiles.some(([name, profile]) => !collectTauriProfileDiagnostics(name, profile).ok)) defaultRuntime.exit(1);
+	});
+}
 //#endregion
 //#region src/cli/browser-cli-extension.ts
 function resolveBundledExtensionRootDir(here = path.dirname(fileURLToPath(import.meta.url))) {
@@ -973,6 +1147,7 @@ function usesChromeMcpTransport(params) {
 	return params.transport === "chrome-mcp" || params.driver === "existing-session";
 }
 function formatBrowserConnectionSummary(params) {
+	if (params.transport === "webdriver" || params.driver === "tauri-webdriver") return `webdriverUrl: ${params.webdriverUrl ?? "(unset)"}`;
 	if (usesChromeMcpTransport(params)) return "transport: chrome-mcp";
 	if (params.isRemote) return `cdpUrl: ${params.cdpUrl ?? "(unset)"}`;
 	return `port: ${params.cdpPort ?? "(unset)"}`;
@@ -989,8 +1164,9 @@ function registerBrowserManageCommands(browser, parentOpts) {
 				`profile: ${status.profile ?? "openclaw"}`,
 				`enabled: ${status.enabled}`,
 				`running: ${status.running}`,
-				`transport: ${usesChromeMcpTransport(status) ? "chrome-mcp" : status.transport ?? "cdp"}`,
-				...!usesChromeMcpTransport(status) ? [`cdpPort: ${status.cdpPort ?? "(unset)"}`, `cdpUrl: ${status.cdpUrl ?? `http://127.0.0.1:${status.cdpPort}`}`] : [],
+				`driver: ${status.driver ?? "openclaw"}`,
+				`transport: ${status.transport ?? (usesChromeMcpTransport(status) ? "chrome-mcp" : "cdp")}`,
+				...status.transport === "webdriver" ? [`webdriverUrl: ${status.webdriverUrl ?? "(unset)"}`, `managed: ${status.managed !== false}`, `appPid: ${status.appPid ?? "(unset)"}`, `tauriDriverPid: ${status.tauriDriverPid ?? "(unset)"}`, `nativeDriverPid: ${status.nativeDriverPid ?? "(unset)"}`] : !usesChromeMcpTransport(status) ? [`cdpPort: ${status.cdpPort ?? "(unset)"}`, `cdpUrl: ${status.cdpUrl ?? `http://127.0.0.1:${status.cdpPort}`}`] : [],
 				`browser: ${status.chosenBrowser ?? "unknown"}`,
 				`detectedBrowser: ${status.detectedBrowser ?? "unknown"}`,
 				`detectedPath: ${detectedDisplay}`,
@@ -1171,7 +1347,7 @@ function registerBrowserManageCommands(browser, parentOpts) {
 			}).join("\n"));
 		});
 	});
-	browser.command("create-profile").description("Create a new browser profile").requiredOption("--name <name>", "Profile name (lowercase, numbers, hyphens)").option("--color <hex>", "Profile color (hex format, e.g. #0066CC)").option("--cdp-url <url>", "CDP URL for remote Chrome (http/https)").option("--driver <driver>", "Profile driver (openclaw|extension|existing-session). Default: openclaw").action(async (opts, cmd) => {
+	browser.command("create-profile").description("Create a new browser profile").requiredOption("--name <name>", "Profile name (lowercase, numbers, hyphens)").option("--color <hex>", "Profile color (hex format, e.g. #0066CC)").option("--cdp-url <url>", "CDP URL for remote Chrome (http/https)").option("--webdriver-url <url>", "WebDriver URL for native app automation").option("--driver <driver>", "Profile driver (openclaw|extension|existing-session|tauri-webdriver). Default: openclaw").option("--managed", "Mark a WebDriver profile as Trident-managed", true).option("--app-command <command>", "Managed app command for tauri-webdriver").option("--tauri-driver-command <command>", "Managed tauri-driver command").option("--native-driver-command <command>", "Managed native driver command").action(async (opts, cmd) => {
 		const parent = parentOpts(cmd);
 		await runBrowserCommand$1(async () => {
 			const result = await callBrowserRequest(parent, {
@@ -1181,12 +1357,17 @@ function registerBrowserManageCommands(browser, parentOpts) {
 					name: opts.name,
 					color: opts.color,
 					cdpUrl: opts.cdpUrl,
-					driver: opts.driver === "extension" ? "extension" : opts.driver === "existing-session" ? "existing-session" : void 0
+					webdriverUrl: opts.webdriverUrl,
+					driver: opts.driver === "extension" ? "extension" : opts.driver === "existing-session" ? "existing-session" : opts.driver === "tauri-webdriver" ? "tauri-webdriver" : void 0,
+					managed: opts.managed,
+					app: opts.appCommand ? { command: opts.appCommand } : void 0,
+					tauriDriver: opts.tauriDriverCommand ? { command: opts.tauriDriverCommand } : void 0,
+					nativeDriver: opts.nativeDriverCommand ? { command: opts.nativeDriverCommand } : void 0
 				}
 			}, { timeoutMs: 1e4 });
 			if (printJsonResult(parent, result)) return;
 			const loc = `  ${formatBrowserConnectionSummary(result)}`;
-			defaultRuntime.log(info(`Created profile "${result.profile}"\n${loc}\n  color: ${result.color}${opts.driver === "extension" ? "\n  driver: extension" : opts.driver === "existing-session" ? "\n  driver: existing-session" : ""}`));
+			defaultRuntime.log(info(`Created profile "${result.profile}"\n${loc}\n  color: ${result.color}${opts.driver ? `\n  driver: ${opts.driver}` : ""}`));
 		});
 	});
 	browser.command("delete-profile").description("Delete a browser profile").requiredOption("--name <name>", "Profile name to delete").action(async (opts, cmd) => {
@@ -1544,6 +1725,7 @@ function registerBrowserCli(program) {
 	});
 	addGatewayClientOptions(browser);
 	const parentOpts = (cmd) => cmd.parent?.opts?.();
+	registerBrowserSetupCommands(browser);
 	registerBrowserManageCommands(browser, parentOpts);
 	registerBrowserExtensionCommands(browser, parentOpts);
 	registerBrowserInspectCommands(browser, parentOpts);
