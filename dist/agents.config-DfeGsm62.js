@@ -1,5 +1,5 @@
 import { Gt as identityHasValues, Kt as loadAgentIdentityFromWorkspace } from "./auth-profiles-DRjqKE3G.js";
-import { a as resolveAgentDir, d as resolveAgentWorkspaceDir, f as resolveDefaultAgentId, n as listAgentEntries } from "./agent-scope-CZIF93u7.js";
+import { a as resolveAgentDir, d as resolveAgentWorkspaceDir, f as resolveDefaultAgentId, i as resolveAgentConfig, n as listAgentEntries } from "./agent-scope-CZIF93u7.js";
 import { c as normalizeAgentId } from "./session-key-51LnISpq.js";
 import { x as listRouteBindings } from "./plugins-C-z6VZlO.js";
 //#region src/commands/agents.config.ts
@@ -11,11 +11,11 @@ function resolveAgentName(cfg, agentId) {
 	return listAgentEntries(cfg).find((agent) => normalizeAgentId(agent.id) === normalizeAgentId(agentId))?.name?.trim() || void 0;
 }
 function resolveAgentModel(cfg, agentId) {
-	const entry = listAgentEntries(cfg).find((agent) => normalizeAgentId(agent.id) === normalizeAgentId(agentId));
-	if (entry?.model) {
-		if (typeof entry.model === "string" && entry.model.trim()) return entry.model.trim();
-		if (typeof entry.model === "object") {
-			const primary = entry.model.primary?.trim();
+	const model = resolveAgentConfig(cfg, agentId)?.model;
+	if (model) {
+		if (typeof model === "string" && model.trim()) return model.trim();
+		if (typeof model === "object") {
+			const primary = model.primary?.trim();
 			if (primary) return primary;
 		}
 	}
@@ -47,6 +47,7 @@ function buildAgentSummaries(cfg) {
 		return {
 			id,
 			name: resolveAgentName(cfg, id),
+			classId: configuredAgents.find((agent) => normalizeAgentId(agent.id) === id)?.class?.trim() || void 0,
 			identityName,
 			identityEmoji,
 			identitySource,
@@ -66,6 +67,7 @@ function applyAgentConfig(cfg, params) {
 	const nextEntry = {
 		...index >= 0 ? list[index] : { id: agentId },
 		...name ? { name } : {},
+		...params.classId ? { class: params.classId } : {},
 		...params.workspace ? { workspace: params.workspace } : {},
 		...params.agentDir ? { agentDir: params.agentDir } : {},
 		...params.model ? { model: params.model } : {}

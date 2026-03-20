@@ -4,7 +4,7 @@ import "./theme-H80Q3Qtv.js";
 import "./boolean-DTgd5CzD.js";
 import { At as summarizeExistingConfig, Dt as randomToken, Et as probeGatewayReachable, Mt as waitForGatewayReachable, Ot as resolveControlUiLinks, Pg as readConfigFileSnapshot, Rg as writeConfigFile, St as normalizeGatewayTokenInput, Tt as printWizardHeader, U as withProgress, Xh as findTailscaleBinary, _t as ensureWorkspaceAndSessions, jg as loadConfig, jt as validateGatewayPasswordInput, mt as applyWizardMetadata, p as ensureAuthProfileStore, pt as DEFAULT_WORKSPACE, yt as guardCancel } from "./auth-profiles-DRjqKE3G.js";
 import { t as formatCliCommand } from "./command-format-BTnLVWI8.js";
-import { j as resolveDefaultAgentWorkspaceDir } from "./agent-scope-CZIF93u7.js";
+import { f as resolveDefaultAgentId, j as resolveDefaultAgentWorkspaceDir } from "./agent-scope-CZIF93u7.js";
 import { v as resolveUserPath, x as shortenHomePath } from "./utils-B88a096J.js";
 import "./boundary-file-read-Bb0WDUIN.js";
 import "./logger-D0msxOz2.js";
@@ -86,6 +86,7 @@ import { confirm, intro, outro, select, text } from "@clack/prompts";
 const CONFIGURE_WIZARD_SECTIONS = [
 	"workspace",
 	"model",
+	"agents",
 	"web",
 	"gateway",
 	"daemon",
@@ -115,6 +116,11 @@ const CONFIGURE_SECTION_OPTIONS = [
 		value: "model",
 		label: "Model",
 		hint: "Pick provider + credentials"
+	},
+	{
+		value: "agents",
+		label: "Agents",
+		hint: "Choose class + model chains"
 	},
 	{
 		value: "web",
@@ -434,27 +440,35 @@ async function promptAuthConfig(cfg, runtime, prompter) {
 			next = applyModelFallbacksFromSelection(next, allowlistSelection.models);
 		}
 	}
+	return next;
+}
+async function promptAgentsConfig(cfg, runtime, prompter) {
+	let next = ensureBuiltinAgentClasses(cfg);
+	next = await promptAgentClassConfig(next, runtime, prompter);
+	const selectedClassId = resolveConfiguredAgentClassId(next);
 	next = await promptAgentModelDefaults(next, runtime, prompter, {
-		allowedKeys: anthropicOAuth ? ANTHROPIC_OAUTH_MODEL_KEYS : void 0,
-		preferredProvider: resolvePreferredProviderForAuthChoice({
-			choice: authChoice,
-			config: next
-		})
+		classId: selectedClassId,
+		preferredProvider: resolveConfiguredPrimaryModel(next, {
+			classId: selectedClassId
+		})?.split("/")[0] ?? resolveConfiguredPrimaryModel(next)?.split("/")[0]
 	});
 	next = await promptSubagentModelDefaults(next, runtime, prompter, {
-		allowedKeys: anthropicOAuth ? ANTHROPIC_OAUTH_MODEL_KEYS : void 0,
-		preferredProvider: resolvePreferredProviderForAuthChoice({
-			choice: authChoice,
-			config: next
-		})
+		classId: selectedClassId,
+		preferredProvider: resolveConfiguredSubagentPrimaryModel(next, {
+			classId: selectedClassId
+		})?.split("/")[0] ?? resolveConfiguredPrimaryModel(next, {
+			classId: selectedClassId
+		})?.split("/")[0] ?? resolveConfiguredPrimaryModel(next)?.split("/")[0]
 	});
 	return next;
 }
-function resolveConfiguredPrimaryModel(cfg) {
-	const model = cfg.agents?.defaults?.model;
-	if (typeof model === "string") return model.trim() || void 0;
-	if (!model || typeof model !== "object") return;
-	return model.primary?.trim() || void 0;
+function resolveAgentClassPreset(cfg, classId) {
+	const id = String(classId ?? "").trim();
+	if (!id) return;
+	const classes = cfg.agents?.classes;
+	if (!classes || typeof classes !== "object") return;
+	const preset = classes[id];
+	return preset && typeof preset === "object" ? preset : void 0;
 }
 function normalizeConfiguredModelKeys(values) {
 	const seen = /* @__PURE__ */ new Set();
@@ -467,28 +481,258 @@ function normalizeConfiguredModelKeys(values) {
 	}
 	return next;
 }
-function resolveConfiguredModelFallbacks(cfg, primary) {
-	const model = cfg.agents?.defaults?.model;
+function buildModelChainFromConfig(rawModel, fallbackPrimary) {
+	let primary;
+	let fallbacks = [];
+	if (typeof rawModel === "string") primary = rawModel.trim() || void 0;
+	else if (rawModel && typeof rawModel === "object") {
+		primary = rawModel.primary?.trim() || void 0;
+		if (Array.isArray(rawModel.fallbacks)) fallbacks = rawModel.fallbacks;
+	}
+	const effectivePrimary = (primary ?? fallbackPrimary?.trim()) || void 0;
+	if (!effectivePrimary) return;
+	const ordered = normalizeConfiguredModelKeys([
+		effectivePrimary,
+		...fallbacks
+	]);
+	return {
+		primary: ordered[0],
+		...(ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {})
+	};
+}
+function buildBuiltinCoderAgentClass(cfg) {
+	const mainModel = buildModelChainFromConfig(cfg.agents?.defaults?.model);
+	const subagentModel = buildModelChainFromConfig(cfg.agents?.defaults?.subagents?.model, mainModel?.primary);
+	return {
+		name: "Coder",
+		description: "Current coding-oriented agent setup with the existing Trident defaults.",
+		...(mainModel ? { model: mainModel } : {}),
+		...(subagentModel ? {
+			subagents: {
+				model: subagentModel
+			}
+		} : {})
+	};
+}
+function buildBuiltinTesterAgentClass(cfg) {
+	const mainModel = buildModelChainFromConfig(cfg.agents?.defaults?.model);
+	const subagentModel = buildModelChainFromConfig(cfg.agents?.defaults?.subagents?.model, mainModel?.primary);
+	return {
+		name: "Tester",
+		description: "GUI testing agents for Tauri WebDriver and Playwright workflows. Launch apps, execute test plans, and capture artifacts for follow-up development.",
+		workspaceRoot: "~/.trident/workspaces/tester",
+		agentDirRoot: "~/.trident/agents/tester",
+		tools: {
+			profile: "full",
+			alsoAllow: ["browser", "exec"]
+		},
+		...(mainModel ? { model: mainModel } : {}),
+		subagents: {
+			...(subagentModel ? { model: subagentModel } : {}),
+			tools: {
+				alsoAllow: ["browser", "exec"]
+			}
+		}
+	};
+}
+function ensureBuiltinAgentClasses(cfg) {
+	const classes = cfg.agents?.classes ?? {};
+	let changed = false;
+	const nextClasses = {
+		...classes
+	};
+	if (!resolveAgentClassPreset(cfg, "coder")) {
+		nextClasses.coder = buildBuiltinCoderAgentClass(cfg);
+		changed = true;
+	}
+	if (!resolveAgentClassPreset(cfg, "tester")) {
+		nextClasses.tester = buildBuiltinTesterAgentClass(cfg);
+		changed = true;
+	}
+	if (!changed) return cfg;
+	return {
+		...cfg,
+		agents: {
+			...cfg.agents,
+			classes: nextClasses
+		}
+	};
+}
+function resolveConfiguredAgentClassId(cfg) {
+	const agentId = resolveDefaultAgentId(cfg);
+	const list = Array.isArray(cfg.agents?.list) ? cfg.agents.list : [];
+	const entry = list.find((item) => String(item?.id ?? "").trim() === agentId);
+	const classId = typeof entry?.class === "string" ? entry.class.trim() : "";
+	return classId || void 0;
+}
+function resolveAgentClassDisplayName(cfg, classId) {
+	const id = String(classId ?? "").trim();
+	if (!id) return "Agent";
+	return resolveAgentClassPreset(cfg, id)?.name?.trim() || id;
+}
+function applyConfiguredAgentClass(cfg, classId) {
+	const nextClassId = String(classId ?? "").trim();
+	if (!nextClassId) return cfg;
+	const agentId = resolveDefaultAgentId(cfg);
+	const list = Array.isArray(cfg.agents?.list) ? [...cfg.agents.list] : [];
+	const index = list.findIndex((entry) => String(entry?.id ?? "").trim() === agentId);
+	const nextEntry = {
+		...index >= 0 ? list[index] : { id: agentId },
+		id: agentId,
+		class: nextClassId
+	};
+	if (index >= 0) list[index] = nextEntry;
+	else list.push(nextEntry);
+	return {
+		...cfg,
+		agents: {
+			...cfg.agents,
+			list
+		}
+	};
+}
+function formatConfiguredAgentClassSummary(cfg) {
+	const classId = resolveConfiguredAgentClassId(cfg);
+	const preset = classId ? resolveAgentClassPreset(cfg, classId) : void 0;
+	return [
+		`Current class: ${classId ? `${resolveAgentClassDisplayName(cfg, classId)} (${classId})` : "Coder (recommended default)"}`,
+		`Description: ${preset?.description?.trim() || "Coding-oriented agents use the existing setup. Tester uses browser-first GUI testing defaults."}`,
+		`Workspace root: ${preset?.workspaceRoot?.trim() || "(current/default agent workspace)"}`,
+		`Agent dir root: ${preset?.agentDirRoot?.trim() || "(current/default agent dir)"}`
+	].join("\n");
+}
+async function promptAgentClassConfig(cfg, runtime, prompter) {
+	let next = ensureBuiltinAgentClasses(cfg);
+	await prompter.note([
+		"Choose the class for the default agent first.",
+		"Coder mirrors the current coding-oriented setup.",
+		"Tester uses browser-first GUI testing defaults for Tauri WebDriver and Playwright artifact capture.",
+		"",
+		formatConfiguredAgentClassSummary(next)
+	].join("\n"), "Agent class");
+	const classOptions = [
+		{
+			value: "coder",
+			label: "Coder",
+			hint: "Current coding-oriented setup"
+		},
+		{
+			value: "tester",
+			label: "Tester",
+			hint: "Tauri WebDriver + Playwright testing"
+		},
+		...Object.keys(next.agents?.classes ?? {}).filter((id) => id !== "coder" && id !== "tester").sort().map((id) => ({
+			value: id,
+			label: resolveAgentClassDisplayName(next, id),
+			hint: resolveAgentClassPreset(next, id)?.description?.trim() || "Custom agent class"
+		}))
+	];
+	const selectedClass = await prompter.select({
+		message: "Primary agent class",
+		initialValue: resolveConfiguredAgentClassId(next) ?? "coder",
+		options: classOptions
+	});
+	next = applyConfiguredAgentClass(next, selectedClass);
+	const selectedPreset = resolveAgentClassPreset(next, selectedClass);
+	await prompter.note([
+		`Selected class: ${resolveAgentClassDisplayName(next, selectedClass)} (${selectedClass})`,
+		`Description: ${selectedPreset?.description?.trim() || "(none)"}`,
+		`Workspace root: ${selectedPreset?.workspaceRoot?.trim() || "(current/default agent workspace)"}`,
+		`Agent dir root: ${selectedPreset?.agentDirRoot?.trim() || "(current/default agent dir)"}`
+	].join("\n"), "Selected agent class");
+	return next;
+}
+function resolveConfiguredPrimaryModel(cfg, options = {}) {
+	const model = options.classId ? resolveAgentClassPreset(cfg, options.classId)?.model : cfg.agents?.defaults?.model;
+	if (typeof model === "string") return model.trim() || void 0;
+	if (!model || typeof model !== "object") return;
+	return model.primary?.trim() || void 0;
+}
+function resolveConfiguredModelFallbacks(cfg, primary, options = {}) {
+	const model = options.classId ? resolveAgentClassPreset(cfg, options.classId)?.model : cfg.agents?.defaults?.model;
 	if (!model || typeof model !== "object" || !Array.isArray(model.fallbacks)) return [];
 	return normalizeConfiguredModelKeys(model.fallbacks.filter((value) => String(value ?? "").trim() !== primary));
 }
-function formatConfiguredModelDefaultsSummary(cfg) {
-	const primary = resolveConfiguredPrimaryModel(cfg);
-	const fallbacks = resolveConfiguredModelFallbacks(cfg, primary);
+function formatConfiguredModelDefaultsSummary(cfg, options = {}) {
+	const primary = resolveConfiguredPrimaryModel(cfg, options);
+	const fallbacks = resolveConfiguredModelFallbacks(cfg, primary, options);
 	return [
 		`Primary: ${primary ?? "(not explicitly set)"}`,
 		`Fallbacks: ${fallbacks.length > 0 ? fallbacks.join(", ") : "(none)"}`
 	].join("\n");
 }
-function applyExplicitModelDefaults(cfg, primary, selectedModels) {
+function buildUpdatedModelRegistry(cfg, ordered) {
+	const defaults = cfg.agents?.defaults;
+	const existingModels = defaults?.models ?? {};
+	const nextModels = {
+		...existingModels
+	};
+	for (const key of ordered) nextModels[key] = existingModels[key] ?? {};
+	return nextModels;
+}
+function applyConfiguredPrimaryModel(cfg, primary, options = {}) {
+	if (!options.classId) return applyPrimaryModel(cfg, primary);
+	const classId = String(options.classId ?? "").trim();
+	if (!classId) return cfg;
+	const ordered = normalizeConfiguredModelKeys([
+		primary,
+		...resolveConfiguredModelFallbacks(cfg, resolveConfiguredPrimaryModel(cfg, options), options)
+	]);
+	const classEntry = resolveAgentClassPreset(cfg, classId) ?? {};
+	const defaults = cfg.agents?.defaults;
+	return {
+		...cfg,
+		agents: {
+			...cfg.agents,
+			classes: {
+				...(cfg.agents?.classes ?? {}),
+				[classId]: {
+					...classEntry,
+					model: {
+						primary,
+						...(ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {})
+					}
+				}
+			},
+			defaults: {
+				...defaults,
+				models: buildUpdatedModelRegistry(cfg, ordered)
+			}
+		}
+	};
+}
+function applyExplicitModelDefaults(cfg, primary, selectedModels, options = {}) {
 	const ordered = normalizeConfiguredModelKeys([
 		primary,
 		...selectedModels
 	]);
+	if (options.classId) {
+		const classId = String(options.classId ?? "").trim();
+		if (!classId) return cfg;
+		const classEntry = resolveAgentClassPreset(cfg, classId) ?? {};
+		const defaults = cfg.agents?.defaults;
+		return {
+			...cfg,
+			agents: {
+				...cfg.agents,
+				classes: {
+					...(cfg.agents?.classes ?? {}),
+					[classId]: {
+						...classEntry,
+						model: {
+							primary,
+							...(ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {})
+						}
+					}
+				},
+				defaults: {
+					...defaults,
+					models: buildUpdatedModelRegistry(cfg, ordered)
+				}
+			}
+		};
+	}
 	const defaults = cfg.agents?.defaults;
-	const existingModels = defaults?.models ?? {};
-	const nextModels = {};
-	for (const key of ordered) nextModels[key] = existingModels[key] ?? {};
 	return {
 		...cfg,
 		agents: {
@@ -497,37 +741,38 @@ function applyExplicitModelDefaults(cfg, primary, selectedModels) {
 				...defaults,
 				model: {
 					primary,
-					...ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {}
+					...(ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {})
 				},
-				models: nextModels
+				models: buildUpdatedModelRegistry(cfg, ordered)
 			}
 		}
 	};
 }
 async function promptAgentModelDefaults(cfg, runtime, prompter, options = {}) {
+	const scopeLabel = options.classId ? `${resolveAgentClassDisplayName(cfg, options.classId)} agent` : "Agent";
 	await prompter.note([
-		"Choose the default agent model chain explicitly.",
+		`Choose the default model chain for the ${scopeLabel.toLowerCase()}.`,
 		"Fallback models are only used if the primary model fails.",
 		"",
-		formatConfiguredModelDefaultsSummary(cfg)
-	].join("\n"), "Agent model defaults");
+		formatConfiguredModelDefaultsSummary(cfg, options)
+	].join("\n"), `${scopeLabel} model defaults`);
 	let next = cfg;
 	const modelSelection = await promptDefaultModel({
 		config: next,
 		prompter,
-		allowKeep: Boolean(resolveConfiguredPrimaryModel(next)),
+		allowKeep: Boolean(resolveConfiguredPrimaryModel(next, options)),
 		ignoreAllowlist: true,
 		includeProviderPluginSetups: true,
 		preferredProvider: options.preferredProvider,
 		workspaceDir: resolveDefaultAgentWorkspaceDir(),
 		runtime,
-		message: "Primary default model"
+		message: options.classId ? `Primary model for ${resolveAgentClassDisplayName(next, options.classId)}` : "Primary default model"
 	});
 	if (modelSelection.config) next = modelSelection.config;
-	if (modelSelection.model) next = applyPrimaryModel(next, modelSelection.model);
-	const primary = resolveConfiguredPrimaryModel(next);
+	if (modelSelection.model) next = applyConfiguredPrimaryModel(next, modelSelection.model, options);
+	const primary = resolveConfiguredPrimaryModel(next, options);
 	if (!primary) return next;
-	const currentFallbacks = resolveConfiguredModelFallbacks(next, primary);
+	const currentFallbacks = resolveConfiguredModelFallbacks(next, primary, options);
 	const selection = await promptModelAllowlist({
 		config: next,
 		prompter,
@@ -535,38 +780,100 @@ async function promptAgentModelDefaults(cfg, runtime, prompter, options = {}) {
 		initialSelections: [primary, ...currentFallbacks],
 		message: "Selected models (primary first, fallbacks after)"
 	});
-	if (selection.models) next = applyExplicitModelDefaults(next, primary, selection.models);
-	await prompter.note(formatConfiguredModelDefaultsSummary(next), "Selected model chain");
+	if (selection.models) next = applyExplicitModelDefaults(next, primary, selection.models, options);
+	await prompter.note(formatConfiguredModelDefaultsSummary(next, options), `Selected ${scopeLabel.toLowerCase()} model chain`);
 	return next;
 }
-function resolveConfiguredSubagentPrimaryModel(cfg) {
-	const model = cfg.agents?.defaults?.subagents?.model;
+function resolveConfiguredSubagentPrimaryModel(cfg, options = {}) {
+	const model = options.classId ? resolveAgentClassPreset(cfg, options.classId)?.subagents?.model : cfg.agents?.defaults?.subagents?.model;
 	if (typeof model === "string") return model.trim() || void 0;
 	if (!model || typeof model !== "object") return;
 	return model.primary?.trim() || void 0;
 }
-function resolveConfiguredSubagentFallbacks(cfg, primary) {
-	const model = cfg.agents?.defaults?.subagents?.model;
+function resolveConfiguredSubagentFallbacks(cfg, primary, options = {}) {
+	const model = options.classId ? resolveAgentClassPreset(cfg, options.classId)?.subagents?.model : cfg.agents?.defaults?.subagents?.model;
 	if (!model || typeof model !== "object" || !Array.isArray(model.fallbacks)) return [];
 	return normalizeConfiguredModelKeys(model.fallbacks.filter((value) => String(value ?? "").trim() !== primary));
 }
-function formatConfiguredSubagentDefaultsSummary(cfg) {
-	const primary = resolveConfiguredSubagentPrimaryModel(cfg) ?? resolveConfiguredPrimaryModel(cfg);
-	const fallbacks = resolveConfiguredSubagentPrimaryModel(cfg) ? resolveConfiguredSubagentFallbacks(cfg, primary) : [];
+function formatConfiguredSubagentDefaultsSummary(cfg, options = {}) {
+	const primary = resolveConfiguredSubagentPrimaryModel(cfg, options) ?? resolveConfiguredPrimaryModel(cfg, options);
+	const fallbacks = resolveConfiguredSubagentPrimaryModel(cfg, options) ? resolveConfiguredSubagentFallbacks(cfg, primary, options) : [];
 	return [
 		`Primary: ${primary ?? "(inherits main default)"}`,
-		`Fallbacks: ${fallbacks.length > 0 ? fallbacks.join(", ") : resolveConfiguredSubagentPrimaryModel(cfg) ? "(none)" : "(inherits main default chain)"}`
+		`Fallbacks: ${fallbacks.length > 0 ? fallbacks.join(", ") : resolveConfiguredSubagentPrimaryModel(cfg, options) ? "(none)" : "(inherits main default chain)"}`
 	].join("\n");
 }
-function applyExplicitSubagentModelDefaults(cfg, primary, selectedModels) {
+function applyConfiguredSubagentPrimaryModel(cfg, primary, options = {}) {
+	const ordered = normalizeConfiguredModelKeys([
+		primary,
+		...resolveConfiguredSubagentFallbacks(cfg, resolveConfiguredSubagentPrimaryModel(cfg, options), options)
+	]);
+	if (options.classId) {
+		const classId = String(options.classId ?? "").trim();
+		if (!classId) return cfg;
+		const classEntry = resolveAgentClassPreset(cfg, classId) ?? {};
+		const defaults = cfg.agents?.defaults;
+		return {
+			...cfg,
+			agents: {
+				...cfg.agents,
+				classes: {
+					...(cfg.agents?.classes ?? {}),
+					[classId]: {
+						...classEntry,
+						subagents: {
+							...classEntry?.subagents,
+							model: {
+								primary,
+								...(ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {})
+							}
+						}
+					}
+				},
+				defaults: {
+					...defaults,
+					models: buildUpdatedModelRegistry(cfg, ordered)
+				}
+			}
+		};
+	}
+	return applyExplicitSubagentModelDefaults(cfg, primary, ordered.slice(1), options);
+}
+function applyExplicitSubagentModelDefaults(cfg, primary, selectedModels, options = {}) {
 	const ordered = normalizeConfiguredModelKeys([
 		primary,
 		...selectedModels
 	]);
+	if (options.classId) {
+		const classId = String(options.classId ?? "").trim();
+		if (!classId) return cfg;
+		const classEntry = resolveAgentClassPreset(cfg, classId) ?? {};
+		const defaults = cfg.agents?.defaults;
+		return {
+			...cfg,
+			agents: {
+				...cfg.agents,
+				classes: {
+					...(cfg.agents?.classes ?? {}),
+					[classId]: {
+						...classEntry,
+						subagents: {
+							...classEntry?.subagents,
+							model: {
+								primary,
+								...(ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {})
+							}
+						}
+					}
+				},
+				defaults: {
+					...defaults,
+					models: buildUpdatedModelRegistry(cfg, ordered)
+				}
+			}
+		};
+	}
 	const defaults = cfg.agents?.defaults;
-	const existingModels = defaults?.models ?? {};
-	const nextModels = {};
-	for (const key of ordered) nextModels[key] = existingModels[key] ?? {};
 	return {
 		...cfg,
 		agents: {
@@ -577,41 +884,42 @@ function applyExplicitSubagentModelDefaults(cfg, primary, selectedModels) {
 					...defaults?.subagents,
 					model: {
 						primary,
-						...ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {}
+						...(ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {})
 					}
 				},
-				models: nextModels
+				models: buildUpdatedModelRegistry(cfg, ordered)
 			}
 		}
 	};
 }
 async function promptSubagentModelDefaults(cfg, runtime, prompter, options = {}) {
+	const scopeLabel = options.classId ? `${resolveAgentClassDisplayName(cfg, options.classId)} sub-agent` : "Sub-agent";
 	await prompter.note([
-		"Choose the default model chain for spawned sub-agents.",
+		`Choose the default model chain for the ${scopeLabel.toLowerCase()}.`,
 		"If you do not set this explicitly, sub-agents can inherit the main agent model chain.",
 		"",
-		formatConfiguredSubagentDefaultsSummary(cfg)
-	].join("\n"), "Sub-agent model defaults");
+		formatConfiguredSubagentDefaultsSummary(cfg, options)
+	].join("\n"), `${scopeLabel} model defaults`);
 	let next = cfg;
 	const modelSelection = await promptDefaultModel({
 		config: next,
 		prompter,
-		allowKeep: Boolean(resolveConfiguredSubagentPrimaryModel(next)),
+		allowKeep: Boolean(resolveConfiguredSubagentPrimaryModel(next, options)),
 		ignoreAllowlist: true,
 		includeProviderPluginSetups: true,
 		preferredProvider: options.preferredProvider,
 		workspaceDir: resolveDefaultAgentWorkspaceDir(),
 		runtime,
-		message: "Primary sub-agent model"
+		message: options.classId ? `Primary sub-agent model for ${resolveAgentClassDisplayName(next, options.classId)}` : "Primary sub-agent model"
 	});
 	if (modelSelection.config) next = modelSelection.config;
-	if (modelSelection.model) next = applyExplicitSubagentModelDefaults(next, modelSelection.model, []);
-	const primary = resolveConfiguredSubagentPrimaryModel(next);
+	if (modelSelection.model) next = applyConfiguredSubagentPrimaryModel(next, modelSelection.model, options);
+	const primary = resolveConfiguredSubagentPrimaryModel(next, options);
 	if (!primary) {
-		await prompter.note(formatConfiguredSubagentDefaultsSummary(next), "Selected sub-agent model chain");
+		await prompter.note(formatConfiguredSubagentDefaultsSummary(next, options), `Selected ${scopeLabel.toLowerCase()} model chain`);
 		return next;
 	}
-	const currentFallbacks = resolveConfiguredSubagentFallbacks(next, primary);
+	const currentFallbacks = resolveConfiguredSubagentFallbacks(next, primary, options);
 	const selection = await promptModelAllowlist({
 		config: next,
 		prompter,
@@ -619,8 +927,8 @@ async function promptSubagentModelDefaults(cfg, runtime, prompter, options = {})
 		initialSelections: [primary, ...currentFallbacks],
 		message: "Selected sub-agent models (primary first, fallbacks after)"
 	});
-	if (selection.models) next = applyExplicitSubagentModelDefaults(next, primary, selection.models);
-	await prompter.note(formatConfiguredSubagentDefaultsSummary(next), "Selected sub-agent model chain");
+	if (selection.models) next = applyExplicitSubagentModelDefaults(next, primary, selection.models, options);
+	await prompter.note(formatConfiguredSubagentDefaultsSummary(next, options), `Selected ${scopeLabel.toLowerCase()} model chain`);
 	return next;
 }
 //#endregion
@@ -1161,6 +1469,7 @@ async function runConfigureWizard(opts, runtime = defaultRuntime) {
 			}
 			if (selected.includes("workspace")) await configureWorkspace();
 			if (selected.includes("model")) nextConfig = await promptAuthConfig(nextConfig, runtime, prompter);
+			if (selected.includes("agents")) nextConfig = await promptAgentsConfig(nextConfig, runtime, prompter);
 			if (selected.includes("web")) nextConfig = await promptWebToolsConfig(nextConfig, runtime);
 			if (selected.includes("gateway")) {
 				const gateway = await promptGatewayConfig(nextConfig, runtime);
@@ -1198,6 +1507,10 @@ async function runConfigureWizard(opts, runtime = defaultRuntime) {
 				}
 				if (choice === "model") {
 					nextConfig = await promptAuthConfig(nextConfig, runtime, prompter);
+					await persistConfig();
+				}
+				if (choice === "agents") {
+					nextConfig = await promptAgentsConfig(nextConfig, runtime, prompter);
 					await persistConfig();
 				}
 				if (choice === "web") {

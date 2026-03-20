@@ -269,8 +269,8 @@ function isRemoteEnvironment() {
 }
 //#endregion
 //#region src/commands/ollama-setup.ts
-const OLLAMA_DEFAULT_MODEL = "glm-4.7-flash";
-const OLLAMA_SUGGESTED_MODELS_LOCAL = ["glm-4.7-flash"];
+const OLLAMA_DEFAULT_MODEL = "llama3.2";
+const OLLAMA_SUGGESTED_MODELS_LOCAL = ["llama3.2", "qwen3", "qwen2.5-coder"];
 const OLLAMA_SUGGESTED_MODELS_CLOUD = [
 	"kimi-k2.5:cloud",
 	"minimax-m2.5:cloud",
@@ -449,6 +449,9 @@ function applyOllamaProviderConfig(cfg, baseUrl, modelNames, discoveredModelsByN
 		}
 	};
 }
+function buildPreferredOllamaModelOrder(modelNames, suggestedModels) {
+	return [...modelNames, ...suggestedModels.filter((name) => !modelNames.includes(name))];
+}
 async function storeOllamaCredential(agentDir) {
 	await upsertAuthProfileWithLock({
 		profileId: "ollama:default",
@@ -514,8 +517,8 @@ async function promptAndConfigureOllama(params) {
 		else cloudAuthVerified = true;
 	}
 	const suggestedModels = mode === "local" || !cloudAuthVerified ? OLLAMA_SUGGESTED_MODELS_LOCAL : OLLAMA_SUGGESTED_MODELS_CLOUD;
-	const orderedModelNames = [...suggestedModels, ...modelNames.filter((name) => !suggestedModels.includes(name))];
-	const defaultModelId = suggestedModels[0] ?? "glm-4.7-flash";
+	const orderedModelNames = buildPreferredOllamaModelOrder(modelNames, suggestedModels);
+	const defaultModelId = modelNames[0] ?? suggestedModels[0] ?? OLLAMA_DEFAULT_MODEL;
 	return {
 		config: applyOllamaProviderConfig(params.cfg, baseUrl, orderedModelNames, discoveredModelsByName),
 		defaultModelId
@@ -537,13 +540,13 @@ async function configureOllamaNonInteractive(params) {
 	const discoveredModelsByName = new Map(enrichedModels.map((model) => [model.name, model]));
 	const modelNames = models.map((m) => m.name);
 	const suggestedModels = OLLAMA_SUGGESTED_MODELS_LOCAL;
-	const orderedModelNames = [...suggestedModels, ...modelNames.filter((name) => !suggestedModels.includes(name))];
-	const requestedDefaultModelId = explicitModel ?? suggestedModels[0];
+	const orderedModelNames = buildPreferredOllamaModelOrder(modelNames, suggestedModels);
+	const requestedDefaultModelId = explicitModel ?? modelNames[0] ?? suggestedModels[0];
 	let pulledRequestedModel = false;
 	const availableModelNames = new Set(modelNames);
 	const requestedCloudModel = isOllamaCloudModel(requestedDefaultModelId);
 	if (requestedCloudModel) availableModelNames.add(requestedDefaultModelId);
-	if (!requestedCloudModel && !modelNames.includes(requestedDefaultModelId)) {
+	if (explicitModel && !requestedCloudModel && !modelNames.includes(requestedDefaultModelId)) {
 		pulledRequestedModel = await pullOllamaModelNonInteractive(baseUrl, requestedDefaultModelId, runtime);
 		if (pulledRequestedModel) availableModelNames.add(requestedDefaultModelId);
 	}

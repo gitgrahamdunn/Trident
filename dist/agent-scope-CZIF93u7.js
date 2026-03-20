@@ -483,23 +483,50 @@ function resolveAgentEntry(cfg, agentId) {
 	const id = normalizeAgentId(agentId);
 	return listAgentEntries(cfg).find((entry) => normalizeAgentId(entry.id) === id);
 }
+function isPlainObject(value) {
+	return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+function mergeAgentScopeValue(base, override) {
+	if (typeof override === "undefined") return base;
+	if (!isPlainObject(base) || !isPlainObject(override)) return override;
+	const next = { ...base };
+	for (const [key, value] of Object.entries(override)) next[key] = mergeAgentScopeValue(next[key], value);
+	return next;
+}
+function resolveAgentClassEntry(cfg, classId) {
+	const rawId = String(classId ?? "").trim();
+	if (!rawId) return;
+	const classes = cfg.agents?.classes;
+	if (!classes || typeof classes !== "object") return;
+	const entry = classes[rawId];
+	return entry && typeof entry === "object" ? entry : void 0;
+}
 function resolveAgentConfig(cfg, agentId) {
 	const entry = resolveAgentEntry(cfg, normalizeAgentId(agentId));
 	if (!entry) return;
+	const classId = typeof entry.class === "string" ? entry.class.trim() : "";
+	const classEntry = classId ? resolveAgentClassEntry(cfg, classId) : void 0;
+	const merged = classEntry ? mergeAgentScopeValue(classEntry, entry) : entry;
 	return {
-		name: typeof entry.name === "string" ? entry.name : void 0,
-		workspace: typeof entry.workspace === "string" ? entry.workspace : void 0,
-		agentDir: typeof entry.agentDir === "string" ? entry.agentDir : void 0,
-		model: typeof entry.model === "string" || entry.model && typeof entry.model === "object" ? entry.model : void 0,
-		skills: Array.isArray(entry.skills) ? entry.skills : void 0,
-		memorySearch: entry.memorySearch,
-		humanDelay: entry.humanDelay,
-		heartbeat: entry.heartbeat,
-		identity: entry.identity,
-		groupChat: entry.groupChat,
-		subagents: typeof entry.subagents === "object" && entry.subagents ? entry.subagents : void 0,
-		sandbox: entry.sandbox,
-		tools: entry.tools
+		classId: classId || void 0,
+		className: typeof classEntry?.name === "string" ? classEntry.name : void 0,
+		name: typeof merged.name === "string" ? merged.name : void 0,
+		workspace: typeof merged.workspace === "string" ? merged.workspace : void 0,
+		workspaceRoot: typeof classEntry?.workspaceRoot === "string" ? classEntry.workspaceRoot : void 0,
+		agentDir: typeof merged.agentDir === "string" ? merged.agentDir : void 0,
+		agentDirRoot: typeof classEntry?.agentDirRoot === "string" ? classEntry.agentDirRoot : void 0,
+		model: typeof merged.model === "string" || merged.model && typeof merged.model === "object" ? merged.model : void 0,
+		skills: Array.isArray(merged.skills) ? merged.skills : void 0,
+		memorySearch: merged.memorySearch,
+		humanDelay: merged.humanDelay,
+		heartbeat: merged.heartbeat,
+		identity: merged.identity,
+		groupChat: merged.groupChat,
+		subagents: typeof merged.subagents === "object" && merged.subagents ? merged.subagents : void 0,
+		sandbox: merged.sandbox,
+		tools: merged.tools,
+		runtime: merged.runtime,
+		params: merged.params
 	};
 }
 function resolveAgentSkillsFilter(cfg, agentId) {
@@ -550,8 +577,11 @@ function resolveEffectiveModelFallbacks(params) {
 }
 function resolveAgentWorkspaceDir(cfg, agentId) {
 	const id = normalizeAgentId(agentId);
-	const configured = resolveAgentConfig(cfg, id)?.workspace?.trim();
+	const agentConfig = resolveAgentConfig(cfg, id);
+	const configured = agentConfig?.workspace?.trim();
 	if (configured) return stripNullBytes(resolveUserPath(configured));
+	const classWorkspaceRoot = agentConfig?.workspaceRoot?.trim();
+	if (classWorkspaceRoot) return stripNullBytes(path.join(resolveUserPath(classWorkspaceRoot), id));
 	if (id === resolveDefaultAgentId(cfg)) {
 		const fallback = cfg.agents?.defaults?.workspace?.trim();
 		if (fallback) return stripNullBytes(resolveUserPath(fallback));
@@ -599,8 +629,11 @@ function resolveAgentIdByWorkspacePath(cfg, workspacePath) {
 }
 function resolveAgentDir(cfg, agentId) {
 	const id = normalizeAgentId(agentId);
-	const configured = resolveAgentConfig(cfg, id)?.agentDir?.trim();
+	const agentConfig = resolveAgentConfig(cfg, id);
+	const configured = agentConfig?.agentDir?.trim();
 	if (configured) return resolveUserPath(configured);
+	const classAgentDirRoot = agentConfig?.agentDirRoot?.trim();
+	if (classAgentDirRoot) return path.join(resolveUserPath(classAgentDirRoot), id, "agent");
 	const root = resolveStateDir(process.env);
 	return path.join(root, "agents", id, "agent");
 }

@@ -63,7 +63,7 @@ import "./auth-choice-prompt--YDr2Lo5.js";
 import "./auth-choice-D_GhKlhP.js";
 import "./auth-choice.preferred-provider-2VLbDL8Z.js";
 import "./model-picker-BiUIMHaM.js";
-import { agentsAddCommand, agentsBindCommand, agentsBindingsCommand, agentsDeleteCommand, agentsListCommand, agentsSetIdentityCommand, agentsUnbindCommand } from "./agents-E2n4jpQg.js";
+import { agentsAddCommand, agentsBindCommand, agentsBindingsCommand, agentsClassesAddCommand, agentsClassesListCommand, agentsDeleteCommand, agentsListCommand, agentsSetIdentityCommand, agentsUnbindCommand } from "./agents-E2n4jpQg.js";
 //#region src/commands/agent-via-gateway.ts
 const NO_GATEWAY_TIMEOUT_MS = 2147e6;
 function parseTimeoutSeconds(opts) {
@@ -217,9 +217,31 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/agent", "docs.trident.ai/cli/agen
 			}, defaultRuntime);
 		});
 	});
-	agents.command("add [name]").description("Add a new isolated agent").option("--workspace <dir>", "Workspace directory for the new agent").option("--model <id>", "Model id for this agent").option("--agent-dir <dir>", "Agent state directory for this agent").option("--bind <channel[:accountId]>", "Route channel binding (repeatable)", collectOption, []).option("--non-interactive", "Disable prompts; requires --workspace", false).option("--json", "Output JSON summary", false).action(async (name, opts, command) => {
+	const agentClasses = agents.command("classes").description("Manage reusable agent class presets");
+	agentClasses.command("list").description("List configured agent classes").option("--json", "Output JSON instead of text", false).action(async (opts) => {
+		await runCommandWithRuntime(defaultRuntime, async () => {
+			await agentsClassesListCommand({
+				json: Boolean(opts.json)
+			}, defaultRuntime);
+		});
+	});
+	agentClasses.command("add [id]").description("Add or update an agent class").option("--name <name>", "Display name for this class").option("--description <text>", "Short description").option("--workspace-root <dir>", "Workspace root used to derive per-agent workspaces").option("--agent-dir-root <dir>", "Agent state root used to derive per-agent agent dirs").option("--model <id>", "Default primary model for this class").option("--subagent-model <id>", "Default sub-agent model for this class").action(async (id, opts) => {
+		await runCommandWithRuntime(defaultRuntime, async () => {
+			await agentsClassesAddCommand({
+				id: typeof id === "string" ? id : void 0,
+				name: opts.name,
+				description: opts.description,
+				workspaceRoot: opts.workspaceRoot,
+				agentDirRoot: opts.agentDirRoot,
+				model: opts.model,
+				subagentModel: opts.subagentModel
+			}, defaultRuntime);
+		});
+	});
+	agents.command("add [name]").description("Add a new isolated agent").option("--class <id>", "Agent class preset to inherit").option("--workspace <dir>", "Workspace directory for the new agent").option("--model <id>", "Model id for this agent").option("--agent-dir <dir>", "Agent state directory for this agent").option("--bind <channel[:accountId]>", "Route channel binding (repeatable)", collectOption, []).option("--non-interactive", "Disable prompts; requires --workspace or a class workspace root", false).option("--json", "Output JSON summary", false).action(async (name, opts, command) => {
 		await runCommandWithRuntime(defaultRuntime, async () => {
 			const hasFlags = hasExplicitOptions(command, [
+				"class",
 				"workspace",
 				"model",
 				"agentDir",
@@ -228,6 +250,7 @@ ${theme.muted("Docs:")} ${formatDocsLink("/cli/agent", "docs.trident.ai/cli/agen
 			]);
 			await agentsAddCommand({
 				name: typeof name === "string" ? name : void 0,
+				class: opts.class,
 				workspace: opts.workspace,
 				model: opts.model,
 				agentDir: opts.agentDir,

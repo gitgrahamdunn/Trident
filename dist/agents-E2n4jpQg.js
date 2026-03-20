@@ -69,6 +69,32 @@ function createQuietRuntime(runtime) {
 		log: () => {}
 	};
 }
+function listAgentClasses(cfg) {
+	const classes = cfg?.agents?.classes;
+	if (!classes || typeof classes !== "object") return {};
+	return classes;
+}
+function resolveAgentClassPreset(cfg, classId) {
+	const id = String(classId ?? "").trim();
+	if (!id) return;
+	const classes = listAgentClasses(cfg);
+	const preset = classes[id];
+	return preset && typeof preset === "object" ? preset : void 0;
+}
+function resolveClassWorkspaceForAgent(cfg, classId, agentId) {
+	const root = resolveAgentClassPreset(cfg, classId)?.workspaceRoot?.trim();
+	return root ? path.join(resolveUserPath(root), agentId) : void 0;
+}
+function resolveClassAgentDirForAgent(cfg, classId, agentId) {
+	const root = resolveAgentClassPreset(cfg, classId)?.agentDirRoot?.trim();
+	return root ? path.join(resolveUserPath(root), agentId, "agent") : void 0;
+}
+function resolveClassSubagentModel(cfg, classId) {
+	const model = resolveAgentClassPreset(cfg, classId)?.subagents?.model;
+	if (typeof model === "string") return model.trim() || void 0;
+	if (!model || typeof model !== "object") return;
+	return model.primary?.trim() || void 0;
+}
 async function requireValidConfig(runtime) {
 	return await requireValidConfigSnapshot(runtime);
 }
@@ -315,12 +341,18 @@ async function fileExists(pathname) {
 async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 	const cfg = await requireValidConfig(runtime);
 	if (!cfg) return;
+	const classId = opts.class?.trim();
+	if (classId && !resolveAgentClassPreset(cfg, classId)) {
+		runtime.error(`Agent class "${classId}" not found.`);
+		runtime.exit(1);
+		return;
+	}
 	const workspaceFlag = opts.workspace?.trim();
 	const nameInput = opts.name?.trim();
 	const hasFlags = params?.hasFlags === true;
 	const nonInteractive = Boolean(opts.nonInteractive || hasFlags);
-	if (nonInteractive && !workspaceFlag) {
-		runtime.error("Non-interactive mode requires --workspace. Re-run without flags to use the wizard.");
+	if (nonInteractive && !workspaceFlag && !classId) {
+		runtime.error("Non-interactive mode requires --workspace or --class with a workspaceRoot. Re-run without flags to use the wizard.");
 		runtime.exit(1);
 		return;
 	}
@@ -330,8 +362,9 @@ async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 			runtime.exit(1);
 			return;
 		}
-		if (!workspaceFlag) {
-			runtime.error("Non-interactive mode requires --workspace. Re-run without flags to use the wizard.");
+		const derivedWorkspace = classId ? resolveClassWorkspaceForAgent(cfg, classId, normalizeAgentId(nameInput)) : void 0;
+		if (!workspaceFlag && !derivedWorkspace) {
+			runtime.error("Non-interactive mode requires --workspace or a class with workspaceRoot.");
 			runtime.exit(1);
 			return;
 		}
@@ -347,15 +380,17 @@ async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 			runtime.exit(1);
 			return;
 		}
-		const workspaceDir = resolveUserPath(workspaceFlag);
-		const agentDir = opts.agentDir?.trim() ? resolveUserPath(opts.agentDir.trim()) : resolveAgentDir(cfg, agentId);
-		const model = opts.model?.trim();
+		const workspaceDir = resolveUserPath(workspaceFlag?.trim() || derivedWorkspace);
+		const classDerivedAgentDir = classId ? resolveClassAgentDirForAgent(cfg, classId, agentId) : void 0;
+		const agentDir = opts.agentDir?.trim() ? resolveUserPath(opts.agentDir.trim()) : classDerivedAgentDir ?? resolveAgentDir(cfg, agentId);
+		const model = opts.model?.trim() || (classId ? resolveAgentClassPreset(cfg, classId)?.model && typeof resolveAgentClassPreset(cfg, classId).model === "string" ? resolveAgentClassPreset(cfg, classId).model.trim() : resolveAgentClassPreset(cfg, classId)?.model?.primary?.trim() : void 0);
 		const nextConfig = applyAgentConfig(cfg, {
 			agentId,
 			name: nameInput,
-			workspace: workspaceDir,
-			agentDir,
-			...model ? { model } : {}
+			...classId ? { classId } : {},
+			...workspaceFlag?.trim() ? { workspace: workspaceDir } : {},
+			...opts.agentDir?.trim() ? { agentDir } : {},
+			...opts.model?.trim() ? { model: opts.model.trim() } : {}
 		});
 		const bindingParse = parseBindingSpecs({
 			agentId,
@@ -383,6 +418,7 @@ async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 		const payload = {
 			agentId,
 			name: nameInput,
+			classId,
 			workspace: workspaceDir,
 			agentDir,
 			model,
@@ -396,6 +432,7 @@ async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 		if (opts.json) runtime.log(JSON.stringify(payload, null, 2));
 		else {
 			runtime.log(`Agent: ${agentId}`);
+			if (classId) runtime.log(`Class: ${classId}`);
 			runtime.log(`Workspace: ${shortenHomePath(workspaceDir)}`);
 			runtime.log(`Agent dir: ${shortenHomePath(agentDir)}`);
 			if (model) runtime.log(`Model: ${model}`);
@@ -416,6 +453,20 @@ async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 		const agentName = String(name ?? "").trim();
 		const agentId = normalizeAgentId(agentName);
 		if (agentName !== agentId) await prompter.note(`Normalized id to "${agentId}".`, "Agent id");
+		const configuredClasses = Object.entries(listAgentClasses(cfg));
+		const selectedClassId = classId ?? (configuredClasses.length > 0 ? await prompter.select({
+			message: "Agent class",
+			options: [{
+				value: "__none__",
+				label: "None",
+				hint: "No class preset"
+			}, ...configuredClasses.map(([id, preset]) => ({
+				value: id,
+				label: preset?.name?.trim() || id,
+				hint: preset?.description?.trim() || [preset?.workspaceRoot ? `workspace root: ${shortenHomePath(resolveUserPath(preset.workspaceRoot))}` : "", resolveClassSubagentModel(cfg, id) ? `subagents: ${resolveClassSubagentModel(cfg, id)}` : ""].filter(Boolean).join(" · ") || void 0
+			}))]
+		}) : "__none__");
+		const resolvedClassId = selectedClassId === "__none__" ? void 0 : selectedClassId;
 		if (listAgentEntries(cfg).find((agent) => normalizeAgentId(agent.id) === agentId)) {
 			if (!await prompter.confirm({
 				message: `Agent "${agentId}" already exists. Update it?`,
@@ -425,19 +476,22 @@ async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 				return;
 			}
 		}
-		const workspaceDefault = resolveAgentWorkspaceDir(cfg, agentId);
+		const classWorkspaceDefault = resolvedClassId ? resolveClassWorkspaceForAgent(cfg, resolvedClassId, agentId) : void 0;
+		const workspaceDefault = opts.workspace?.trim() ? resolveUserPath(opts.workspace.trim()) : classWorkspaceDefault ?? resolveAgentWorkspaceDir(cfg, agentId);
 		const workspaceInput = await prompter.text({
 			message: "Workspace directory",
 			initialValue: workspaceDefault,
 			validate: (value) => value?.trim() ? void 0 : "Required"
 		});
 		const workspaceDir = resolveUserPath(String(workspaceInput ?? "").trim() || workspaceDefault);
-		const agentDir = resolveAgentDir(cfg, agentId);
+		const classAgentDir = resolvedClassId ? resolveClassAgentDirForAgent(cfg, resolvedClassId, agentId) : void 0;
+		const agentDir = classAgentDir ?? resolveAgentDir(cfg, agentId);
 		let nextConfig = applyAgentConfig(cfg, {
 			agentId,
 			name: agentName,
-			workspace: workspaceDir,
-			agentDir
+			...resolvedClassId ? { classId: resolvedClassId } : {},
+			...workspaceDir !== (classWorkspaceDefault ?? resolveAgentWorkspaceDir(cfg, agentId)) ? { workspace: workspaceDir } : {},
+			...classAgentDir ? {} : { agentDir }
 		});
 		const defaultAgentId = resolveDefaultAgentId(cfg);
 		if (defaultAgentId !== agentId) {
@@ -517,6 +571,7 @@ async function agentsAddCommand(opts, runtime = defaultRuntime, params) {
 		const payload = {
 			agentId,
 			name: agentName,
+			classId: resolvedClassId ?? null,
 			workspace: workspaceDir,
 			agentDir
 		};
@@ -824,6 +879,135 @@ function listProvidersForAgent(params) {
 	}
 	return providerLines;
 }
+async function agentsClassesListCommand(opts, runtime = defaultRuntime) {
+	const cfg = await requireValidConfig(runtime);
+	if (!cfg) return;
+	const classes = Object.entries(listAgentClasses(cfg)).map(([id, preset]) => ({
+		id,
+		name: preset?.name?.trim() || void 0,
+		description: preset?.description?.trim() || void 0,
+		workspaceRoot: preset?.workspaceRoot?.trim() || void 0,
+		agentDirRoot: preset?.agentDirRoot?.trim() || void 0,
+		model: typeof preset?.model === "string" ? preset.model.trim() : preset?.model?.primary?.trim() || void 0,
+		subagentModel: resolveClassSubagentModel(cfg, id)
+	}));
+	if (opts.json) {
+		runtime.log(JSON.stringify(classes, null, 2));
+		return;
+	}
+	if (classes.length === 0) {
+		runtime.log("No agent classes configured.");
+		return;
+	}
+	const lines = ["Agent classes:"];
+	for (const entry of classes) {
+		lines.push(`- ${entry.id}${entry.name ? ` (${entry.name})` : ""}`);
+		if (entry.description) lines.push(`  ${entry.description}`);
+		if (entry.workspaceRoot) lines.push(`  Workspace root: ${shortenHomePath(resolveUserPath(entry.workspaceRoot))}`);
+		if (entry.agentDirRoot) lines.push(`  Agent dir root: ${shortenHomePath(resolveUserPath(entry.agentDirRoot))}`);
+		if (entry.model) lines.push(`  Model: ${entry.model}`);
+		if (entry.subagentModel) lines.push(`  Sub-agent model: ${entry.subagentModel}`);
+	}
+	runtime.log(lines.join("\n"));
+}
+async function agentsClassesAddCommand(opts, runtime = defaultRuntime) {
+	const cfg = await requireValidConfig(runtime);
+	if (!cfg) return;
+	const classInput = opts.id?.trim() || opts.name?.trim();
+	const hasFlags = Boolean(opts.workspaceRoot || opts.model || opts.subagentModel || opts.description || opts.agentDirRoot);
+	if (hasFlags && !classInput) {
+		runtime.error("Class id is required when using flags.");
+		runtime.exit(1);
+		return;
+	}
+	if (classInput) {
+		const classId = normalizeAgentId(classInput);
+		const existing = resolveAgentClassPreset(cfg, classId) ?? {};
+		const nextPreset = {
+			...existing,
+			...opts.name?.trim() ? { name: opts.name.trim() } : {},
+			...opts.description?.trim() ? { description: opts.description.trim() } : {},
+			...opts.workspaceRoot?.trim() ? { workspaceRoot: resolveUserPath(opts.workspaceRoot.trim()) } : {},
+			...opts.agentDirRoot?.trim() ? { agentDirRoot: resolveUserPath(opts.agentDirRoot.trim()) } : {},
+			...opts.model?.trim() ? { model: { primary: opts.model.trim() } } : {},
+			...opts.subagentModel?.trim() ? {
+				subagents: {
+					...existing?.subagents,
+					model: { primary: opts.subagentModel.trim() }
+				}
+			} : {}
+		};
+		await writeConfigFile({
+			...cfg,
+			agents: {
+				...cfg.agents,
+				classes: {
+					...listAgentClasses(cfg),
+					[classId]: nextPreset
+				}
+			}
+		});
+		logConfigUpdated(runtime);
+		runtime.log(`Agent class: ${classId}`);
+		return;
+	}
+	const prompter = createClackPrompter();
+	try {
+		await prompter.intro("Add agent class");
+		const classNameInput = await prompter.text({
+			message: "Class id",
+			validate: (value) => value?.trim() ? void 0 : "Required"
+		});
+		const classId = normalizeAgentId(String(classNameInput ?? "").trim());
+		const labelInput = await prompter.text({
+			message: "Display name",
+			initialValue: classId
+		});
+		const description = await prompter.text({
+			message: "Description",
+			placeholder: "e.g. UI/UX testing agents with browser-first tooling"
+		});
+		const workspaceRoot = await prompter.text({
+			message: "Workspace root",
+			initialValue: path.join(resolveUserPath("~/.trident/workspaces"), classId),
+			validate: (value) => value?.trim() ? void 0 : "Required"
+		});
+		const model = await prompter.text({
+			message: "Primary model",
+			placeholder: "provider/model",
+			initialValue: typeof cfg.agents?.defaults?.model === "string" ? cfg.agents.defaults.model : cfg.agents?.defaults?.model?.primary || ""
+		});
+		const subagentModel = await prompter.text({
+			message: "Primary sub-agent model",
+			placeholder: "provider/model",
+			initialValue: typeof cfg.agents?.defaults?.subagents?.model === "string" ? cfg.agents.defaults.subagents.model : cfg.agents?.defaults?.subagents?.model?.primary || ""
+		});
+		await writeConfigFile({
+			...cfg,
+			agents: {
+				...cfg.agents,
+				classes: {
+					...listAgentClasses(cfg),
+					[classId]: {
+						name: String(labelInput ?? "").trim() || classId,
+						...String(description ?? "").trim() ? { description: String(description).trim() } : {},
+						workspaceRoot: resolveUserPath(String(workspaceRoot ?? "").trim()),
+						...String(model ?? "").trim() ? { model: { primary: String(model).trim() } } : {},
+						...String(subagentModel ?? "").trim() ? { subagents: { model: { primary: String(subagentModel).trim() } } } : {}
+					}
+				}
+			}
+		});
+		logConfigUpdated(runtime);
+		await prompter.outro(`Agent class "${classId}" ready.`);
+	} catch (err) {
+		if (err instanceof WizardCancelledError) {
+			runtime.exit(1);
+			return;
+		}
+		throw err;
+	}
+}
 //#endregion
 //#region src/commands/agents.commands.list.ts
 function formatSummary(summary) {
@@ -835,6 +1019,7 @@ function formatSummary(summary) {
 	const identityLine = identityParts.length > 0 ? identityParts.join(" ") : null;
 	const identitySource = summary.identitySource === "identity" ? "IDENTITY.md" : summary.identitySource === "config" ? "config" : null;
 	const lines = [`- ${header}`];
+	if (summary.classId) lines.push(`  Class: ${summary.classId}`);
 	if (identityLine) lines.push(`  Identity: ${identityLine}${identitySource ? ` (${identitySource})` : ""}`);
 	lines.push(`  Workspace: ${shortenHomePath(summary.workspace)}`);
 	lines.push(`  Agent dir: ${shortenHomePath(summary.agentDir)}`);
@@ -890,4 +1075,4 @@ async function agentsListCommand(opts, runtime = defaultRuntime) {
 	runtime.log(lines.join("\n"));
 }
 //#endregion
-export { agentsAddCommand, agentsBindCommand, agentsBindingsCommand, agentsDeleteCommand, agentsListCommand, agentsSetIdentityCommand, agentsUnbindCommand };
+export { agentsAddCommand, agentsBindCommand, agentsBindingsCommand, agentsClassesAddCommand, agentsClassesListCommand, agentsDeleteCommand, agentsListCommand, agentsSetIdentityCommand, agentsUnbindCommand };
