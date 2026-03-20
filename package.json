@@ -33,6 +33,7 @@
     "dist/",
     "docs/",
     "extensions/",
+    "scripts/migrate-from-openclaw.mjs",
     "skills/"
   ],
   "type": "module",
