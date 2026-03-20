@@ -1,5 +1,5 @@
 {
-  "name": "trident",
+  "name": "trident-cli",
   "version": "2026.3.13",
   "description": "Trident autonomous agent gateway and orchestration runtime",
   "keywords": [],
