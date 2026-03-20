@@ -465,9 +465,7 @@ async function promptModelAllowlist(params) {
 }
 function applyPrimaryModel(cfg, model) {
 	const defaults = cfg.agents?.defaults;
-	const existingModel = defaults?.model;
 	const existingModels = defaults?.models;
-	const fallbacks = typeof existingModel === "object" && existingModel !== null && "fallbacks" in existingModel ? existingModel.fallbacks : void 0;
 	return {
 		...cfg,
 		agents: {
@@ -475,7 +473,6 @@ function applyPrimaryModel(cfg, model) {
 			defaults: {
 				...defaults,
 				model: {
-					...fallbacks ? { fallbacks } : void 0,
 					primary: model
 				},
 				models: {

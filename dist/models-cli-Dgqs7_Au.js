@@ -38,7 +38,7 @@ import "./logging-DRp8gftI.js";
 import { n as githubCopilotLoginCommand } from "./openai-codex-oauth-DIsDMsgb.js";
 import "./auth-token-CDOwFB9E.js";
 import "./oauth-tls-preflight-BgDtqYZW.js";
-import { _ as modelsAuthPasteTokenCommand, a as modelsImageFallbacksClearCommand, b as modelsAliasesListCommand, c as modelsFallbacksAddCommand, d as modelsFallbacksRemoveCommand, f as modelsAuthOrderClearCommand, g as modelsAuthLoginCommand, h as modelsAuthAddCommand, i as modelsImageFallbacksAddCommand, l as modelsFallbacksClearCommand, m as modelsAuthOrderSetCommand, modelsListCommand, modelsStatusCommand, n as modelsSetCommand, o as modelsImageFallbacksListCommand, p as modelsAuthOrderGetCommand, r as modelsScanCommand, s as modelsImageFallbacksRemoveCommand, t as modelsSetImageCommand, u as modelsFallbacksListCommand, v as modelsAuthSetupTokenCommand, x as modelsAliasesRemoveCommand, y as modelsAliasesAddCommand } from "./models-60KfC8dh.js";
+import { _ as modelsAuthPasteTokenCommand, a as modelsImageFallbacksClearCommand, b as modelsAliasesListCommand, c as modelsFallbacksAddCommand, d as modelsFallbacksRemoveCommand, f as modelsAuthOrderClearCommand, g as modelsAuthLoginCommand, h as modelsAuthAddCommand, i as modelsImageFallbacksAddCommand, l as modelsFallbacksClearCommand, m as modelsAuthOrderSetCommand, modelsListCommand, modelsStatusCommand, n as modelsSetCommand, o as modelsImageFallbacksListCommand, p as modelsAuthOrderGetCommand, r as modelsScanCommand, s as modelsImageFallbacksRemoveCommand, t as modelsSetImageCommand, u as modelsFallbacksListCommand, v as modelsAuthSetupTokenCommand, w as modelsSubagentFallbacksAddCommand, x as modelsAliasesRemoveCommand, y as modelsAliasesAddCommand, z as modelsSubagentFallbacksRemoveCommand, A as modelsSubagentFallbacksClearCommand, B as modelsSubagentFallbacksListCommand, C as modelsSetSubagentCommand } from "./models-60KfC8dh.js";
 //#region src/cli/models-cli.ts
 function runModelsCommand(action) {
 	return runCommandWithRuntime(defaultRuntime, action);
@@ -74,6 +74,11 @@ function registerModelsCli(program) {
 	models.command("set").description("Set the default model").argument("<model>", "Model id or alias").action(async (model) => {
 		await runModelsCommand(async () => {
 			await modelsSetCommand(model, defaultRuntime);
+		});
+	});
+	models.command("set-subagent").description("Set the default model for spawned sub-agents").argument("<model>", "Model id or alias").action(async (model) => {
+		await runModelsCommand(async () => {
+			await modelsSetSubagentCommand(model, defaultRuntime);
 		});
 	});
 	models.command("set-image").description("Set the image model").argument("<model>", "Model id or alias").action(async (model) => {
@@ -137,6 +142,27 @@ function registerModelsCli(program) {
 	imageFallbacks.command("clear").description("Clear all image fallback models").action(async () => {
 		await runModelsCommand(async () => {
 			await modelsImageFallbacksClearCommand(defaultRuntime);
+		});
+	});
+	const subagentFallbacks = models.command("subagent-fallbacks").description("Manage spawned sub-agent model fallback list");
+	subagentFallbacks.command("list").description("List sub-agent fallback models").option("--json", "Output JSON", false).option("--plain", "Plain output", false).action(async (opts) => {
+		await runModelsCommand(async () => {
+			await modelsSubagentFallbacksListCommand(opts, defaultRuntime);
+		});
+	});
+	subagentFallbacks.command("add").description("Add a sub-agent fallback model").argument("<model>", "Model id or alias").action(async (model) => {
+		await runModelsCommand(async () => {
+			await modelsSubagentFallbacksAddCommand(model, defaultRuntime);
+		});
+	});
+	subagentFallbacks.command("remove").description("Remove a sub-agent fallback model").argument("<model>", "Model id or alias").action(async (model) => {
+		await runModelsCommand(async () => {
+			await modelsSubagentFallbacksRemoveCommand(model, defaultRuntime);
+		});
+	});
+	subagentFallbacks.command("clear").description("Clear all sub-agent fallback models").action(async () => {
+		await runModelsCommand(async () => {
+			await modelsSubagentFallbacksClearCommand(defaultRuntime);
 		});
 	});
 models.command("scan").description("Scan models for tools + images").option("--min-params <b>", "Minimum parameter size (billions)").option("--max-age-days <days>", "Skip models older than N days").option("--provider <name>", "Filter by provider prefix").option("--max-candidates <n>", "Max fallback candidates", "6").option("--timeout <ms>", "Per-probe timeout in ms").option("--concurrency <n>", "Probe concurrency").option("--no-probe", "Skip live probes; list free candidates only").option("--yes", "Accept defaults without prompting", false).option("--no-input", "Disable prompts (use defaults)").option("--set-default", "Set agents.defaults.model to the first selection", false).option("--set-image", "Set agents.defaults.imageModel to the first image selection", false).option("--json", "Output JSON", false).action(async (opts) => {

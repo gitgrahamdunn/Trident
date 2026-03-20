@@ -4,7 +4,7 @@ import { n as isRich$1, r as theme, t as colorize } from "./theme-H80Q3Qtv.js";
 import "./boolean-DTgd5CzD.js";
 import { Ag as createConfigIO, An as formatRemainingShort, Bi as resolveUsageProviderId, Cg as loadModelCatalog, Dn as maskApiKey, Eg as resolveOpenClawAgentDir, F as resolveModelRefFromString, F_ as resolveEnvApiKey, Fg as readConfigFileSnapshotForWrite, Fv as resolveAuthProfileDisplayLabel, I_ as resolveUsableCustomProviderApiKey, J as getModelsCommandSecretTargetIds, L_ as getShellEnvAppliedKeys, Lg as setRuntimeConfigSnapshot, Li as loadProviderUsageSummary, Lr as runEmbeddedPiAgent, M as resolveConfiguredModelRef, M_ as hasUsableCustomProviderApiKey, N as resolveDefaultModelForAgent, N_ as resolveApiKeyForProvider, O as normalizeProviderId, On as DEFAULT_OAUTH_WARN_MS, P_ as resolveAwsSdkEnvVarName, R as resolvePluginProviders, R_ as shouldEnableShellEnvFallback, Sv as DEFAULT_PROVIDER, T as modelKey, Tg as shouldSuppressBuiltInModel, W as withProgressTotals, Ym as resolveSecretRefString, Z as resolveCommandSecretRefsViaGateway, b as buildModelAliasIndex, cf as resolveModelWithRegistry, d as setAuthProfileOrder, df as discoverAuthStorage, dv as isNonSecretApiKeyMarker, f as upsertAuthProfile, ff as discoverModels, fo as describeFailoverError, j_ as getCustomProviderApiKey, jg as loadConfig, k as parseModelRef, kn as buildAuthHealthSummary, n as resolveAuthProfileOrder, p as ensureAuthProfileStore, r as resolveProfileUnusableUntilForDisplay, t as resolveAuthProfileEligibility, u as listProfilesForProvider, v as resolveAuthStorePathForDisplay, wt as openUrl, x as findNormalizedProviderValue, xv as DEFAULT_MODEL, zi as formatUsageWindowSummary } from "./auth-profiles-DRjqKE3G.js";
 import { t as formatCliCommand } from "./command-format-BTnLVWI8.js";
-import { F as toAgentModelListLike, N as resolveAgentModelFallbackValues, P as resolveAgentModelPrimaryValue, a as resolveAgentDir, d as resolveAgentWorkspaceDir, f as resolveDefaultAgentId, j as resolveDefaultAgentWorkspaceDir, l as resolveAgentModelFallbacksOverride, s as resolveAgentExplicitModelPrimary } from "./agent-scope-CZIF93u7.js";
+import { F as toAgentModelListLike, N as resolveAgentModelFallbackValues, P as resolveAgentModelPrimaryValue, a as resolveAgentDir, d as resolveAgentWorkspaceDir, f as resolveDefaultAgentId, i as resolveAgentConfig, j as resolveDefaultAgentWorkspaceDir, l as resolveAgentModelFallbacksOverride, s as resolveAgentExplicitModelPrimary } from "./agent-scope-CZIF93u7.js";
 import { x as shortenHomePath } from "./utils-B88a096J.js";
 import { r as normalizeStringEntries } from "./string-normalization-DvR4Hx7b.js";
 import "./boundary-file-read-Bb0WDUIN.js";
@@ -514,17 +514,30 @@ async function modelsAuthOrderSetCommand(opts, runtime) {
 //#endregion
 //#region src/commands/models/fallbacks-shared.ts
 function getFallbacks(cfg, key) {
-	return resolveAgentModelFallbackValues(cfg.agents?.defaults?.[key]);
+	return resolveAgentModelFallbackValues(resolveModelListConfig(cfg, key));
+}
+function resolveModelListConfig(cfg, key) {
+	if (key === "subagentModel") return cfg.agents?.defaults?.subagents?.model;
+	return cfg.agents?.defaults?.[key];
 }
 function patchDefaultsFallbacks(cfg, params) {
-	const existing = toAgentModelListLike(cfg.agents?.defaults?.[params.key]);
+	const defaults = cfg.agents?.defaults;
+	const existing = toAgentModelListLike(resolveModelListConfig(cfg, params.key));
+	const nextValue = mergePrimaryFallbackConfig(existing, { fallbacks: params.fallbacks });
 	return {
 		...cfg,
 		agents: {
 			...cfg.agents,
 			defaults: {
-				...cfg.agents?.defaults,
-				[params.key]: mergePrimaryFallbackConfig(existing, { fallbacks: params.fallbacks }),
+				...defaults,
+				...params.key === "subagentModel" ? {
+					subagents: {
+						...defaults?.subagents,
+						model: nextValue
+					}
+				} : {
+					[params.key]: nextValue
+				},
 				...params.models ? { models: params.models } : void 0
 			}
 		}
@@ -672,6 +685,35 @@ async function modelsImageFallbacksClearCommand(runtime) {
 	}, runtime);
 }
 //#endregion
+//#region src/commands/models/subagent-fallbacks.ts
+async function modelsSubagentFallbacksListCommand(opts, runtime) {
+	return await listFallbacksCommand({
+		label: "Sub-agent fallbacks",
+		key: "subagentModel"
+	}, opts, runtime);
+}
+async function modelsSubagentFallbacksAddCommand(modelRaw, runtime) {
+	return await addFallbackCommand({
+		label: "Sub-agent fallbacks",
+		key: "subagentModel",
+		logPrefix: "Sub-agent fallbacks"
+	}, modelRaw, runtime);
+}
+async function modelsSubagentFallbacksRemoveCommand(modelRaw, runtime) {
+	return await removeFallbackCommand({
+		label: "Sub-agent fallbacks",
+		key: "subagentModel",
+		notFoundLabel: "Sub-agent fallback",
+		logPrefix: "Sub-agent fallbacks"
+	}, modelRaw, runtime);
+}
+async function modelsSubagentFallbacksClearCommand(runtime) {
+	return await clearFallbacksCommand({
+		key: "subagentModel",
+		clearedMessage: "Sub-agent fallback list cleared."
+	}, runtime);
+}
+//#endregion
 //#region src/commands/models/list.configured.ts
 function resolveConfiguredEntries(cfg) {
 	const resolvedDefault = resolveConfiguredModelRef({
@@ -707,8 +749,14 @@ function resolveConfiguredEntries(cfg) {
 	const modelFallbacks = resolveAgentModelFallbackValues(cfg.agents?.defaults?.model);
 	const imageFallbacks = resolveAgentModelFallbackValues(cfg.agents?.defaults?.imageModel);
 	const imagePrimary = resolveAgentModelPrimaryValue(cfg.agents?.defaults?.imageModel) ?? "";
+	const subagentFallbacks = resolveAgentModelFallbackValues(cfg.agents?.defaults?.subagents?.model);
+	const subagentPrimary = resolveAgentModelPrimaryValue(cfg.agents?.defaults?.subagents?.model) ?? "";
 	modelFallbacks.forEach((raw, idx) => {
 		addResolvedModelRef(String(raw ?? ""), `fallback#${idx + 1}`);
+	});
+	if (subagentPrimary) addResolvedModelRef(subagentPrimary, "subagent");
+	subagentFallbacks.forEach((raw, idx) => {
+		addResolvedModelRef(String(raw ?? ""), `sub-fallback#${idx + 1}`);
 	});
 	if (imagePrimary) addResolvedModelRef(imagePrimary, "image");
 	imageFallbacks.forEach((raw, idx) => {
@@ -1571,6 +1619,7 @@ async function modelsStatusCommand(opts, runtime) {
 		rawAgentId: opts.agent
 	});
 	const agentDir = agentId ? resolveAgentDir(cfg, agentId) : resolveOpenClawAgentDir();
+	const agentConfig = agentId ? resolveAgentConfig(cfg, agentId) : void 0;
 	const agentModelPrimary = agentId ? resolveAgentExplicitModelPrimary(cfg, agentId) : void 0;
 	const agentFallbacksOverride = agentId ? resolveAgentModelFallbacksOverride(cfg, agentId) : void 0;
 	const resolved = agentId ? resolveDefaultModelForAgent({
@@ -1587,6 +1636,14 @@ async function modelsStatusCommand(opts, runtime) {
 	const defaultLabel = rawModel || resolvedLabel;
 	const defaultsFallbacks = resolveAgentModelFallbackValues(cfg.agents?.defaults?.model);
 	const fallbacks = agentFallbacksOverride ?? defaultsFallbacks;
+	const defaultSubagentModel = resolveAgentModelPrimaryValue(cfg.agents?.defaults?.subagents?.model) ?? "";
+	const defaultSubagentFallbacks = resolveAgentModelFallbackValues(cfg.agents?.defaults?.subagents?.model);
+	const agentSubagentModel = resolveAgentModelPrimaryValue(agentConfig?.subagents?.model) ?? "";
+	const agentSubagentFallbacks = resolveAgentModelFallbackValues(agentConfig?.subagents?.model);
+	const subagentPrimaryConfig = agentConfig?.subagents?.model ?? cfg.agents?.defaults?.subagents?.model ?? agentConfig?.model ?? cfg.agents?.defaults?.model;
+	const subagentModel = resolveAgentModelPrimaryValue(subagentPrimaryConfig) ?? defaultLabel;
+	const subagentFallbacks = resolveAgentModelFallbackValues(subagentPrimaryConfig);
+	const subagentSource = agentId ? agentSubagentModel ? "agent.subagents" : defaultSubagentModel ? "defaults.subagents" : agentModelPrimary ? "agent" : "defaults" : defaultSubagentModel ? "defaults.subagents" : "defaults";
 	const imageModel = resolveAgentModelPrimaryValue(cfg.agents?.defaults?.imageModel) ?? "";
 	const imageFallbacks = resolveAgentModelFallbackValues(cfg.agents?.defaults?.imageModel);
 	const aliases = Object.entries(cfg.agents?.defaults?.models ?? {}).reduce((acc, [key, entry]) => {
@@ -1604,6 +1661,8 @@ async function modelsStatusCommand(opts, runtime) {
 	for (const raw of [
 		defaultLabel,
 		...fallbacks,
+		subagentModel,
+		...subagentFallbacks,
 		imageModel,
 		...imageFallbacks,
 		...allowed
@@ -1614,6 +1673,8 @@ async function modelsStatusCommand(opts, runtime) {
 	for (const raw of [
 		defaultLabel,
 		...fallbacks,
+		subagentModel,
+		...subagentFallbacks,
 		imageModel,
 		...imageFallbacks
 	]) {
@@ -1742,11 +1803,14 @@ async function modelsStatusCommand(opts, runtime) {
 			defaultModel: defaultLabel,
 			resolvedDefault: resolvedLabel,
 			fallbacks,
+			subagentModel: subagentModel || null,
+			subagentFallbacks,
 			imageModel: imageModel || null,
 			imageFallbacks,
 			...agentId ? { modelConfig: {
 				defaultSource: agentModelPrimary ? "agent" : "defaults",
-				fallbacksSource: agentFallbacksOverride !== void 0 ? "agent" : "defaults"
+				fallbacksSource: agentFallbacksOverride !== void 0 ? "agent" : "defaults",
+				subagentSource
 			} } : {},
 			aliases,
 			allowed,
@@ -1784,6 +1848,8 @@ async function modelsStatusCommand(opts, runtime) {
 	runtime.log(`${label("Agent dir")}${colorize(rich, theme.muted, ":")} ${colorize(rich, theme.info, shortenHomePath(agentDir))}`);
 	runtime.log(`${labelWithSource("Default", agentId ? agentModelPrimary ? "agent" : "defaults" : void 0)}${colorize(rich, theme.muted, ":")} ${colorize(rich, theme.success, displayDefault)}`);
 	runtime.log(`${labelWithSource(`Fallbacks (${fallbacks.length || 0})`, agentId ? agentFallbacksOverride !== void 0 ? "agent" : "defaults" : void 0)}${colorize(rich, theme.muted, ":")} ${colorize(rich, fallbacks.length ? theme.warn : theme.muted, fallbacks.length ? fallbacks.join(", ") : "-")}`);
+	runtime.log(`${labelWithSource("Sub-agent", subagentSource)}${colorize(rich, theme.muted, ":")} ${colorize(rich, subagentModel ? theme.success : theme.muted, subagentModel || "-")}`);
+	runtime.log(`${labelWithSource(`Sub fallbacks (${subagentFallbacks.length || 0})`, subagentSource)}${colorize(rich, theme.muted, ":")} ${colorize(rich, subagentFallbacks.length ? theme.warn : theme.muted, subagentFallbacks.length ? subagentFallbacks.join(", ") : "-")}`);
 	runtime.log(`${labelWithSource("Image model", agentId ? "defaults" : void 0)}${colorize(rich, theme.muted, ":")} ${colorize(rich, imageModel ? theme.accentBright : theme.muted, imageModel || "-")}`);
 	runtime.log(`${labelWithSource(`Image fallbacks (${imageFallbacks.length || 0})`, agentId ? "defaults" : void 0)}${colorize(rich, theme.muted, ":")} ${colorize(rich, imageFallbacks.length ? theme.accentBright : theme.muted, imageFallbacks.length ? imageFallbacks.join(", ") : "-")}`);
 	runtime.log(`${label(`Aliases (${Object.keys(aliases).length || 0})`)}${colorize(rich, theme.muted, ":")} ${colorize(rich, Object.keys(aliases).length ? theme.accent : theme.muted, Object.keys(aliases).length ? Object.entries(aliases).map(([alias, target]) => rich ? `${theme.accentDim(alias)} ${theme.muted("->")} ${theme.info(target)}` : `${alias} -> ${target}`).join(", ") : "-")}`);
@@ -2453,4 +2519,17 @@ async function modelsSetImageCommand(modelRaw, runtime) {
 	runtime.log(`Image model: ${resolveAgentModelPrimaryValue(updated.agents?.defaults?.imageModel) ?? modelRaw}`);
 }
 //#endregion
-export { modelsAuthPasteTokenCommand as _, modelsImageFallbacksClearCommand as a, modelsAliasesListCommand as b, modelsFallbacksAddCommand as c, modelsFallbacksRemoveCommand as d, modelsAuthOrderClearCommand as f, modelsAuthLoginCommand as g, modelsAuthAddCommand as h, modelsImageFallbacksAddCommand as i, modelsFallbacksClearCommand as l, modelsAuthOrderSetCommand as m, modelsListCommand, modelsStatusCommand, modelsSetCommand as n, modelsImageFallbacksListCommand as o, modelsAuthOrderGetCommand as p, modelsScanCommand as r, modelsImageFallbacksRemoveCommand as s, modelsSetImageCommand as t, modelsFallbacksListCommand as u, modelsAuthSetupTokenCommand as v, modelsAliasesRemoveCommand as x, modelsAliasesAddCommand as y };
+//#region src/commands/models/set-subagent.ts
+async function modelsSetSubagentCommand(modelRaw, runtime) {
+	const updated = await updateConfig((cfg) => {
+		return applyDefaultModelPrimaryUpdate({
+			cfg,
+			modelRaw,
+			field: "subagentModel"
+		});
+	});
+	logConfigUpdated(runtime);
+	runtime.log(`Sub-agent model: ${resolveAgentModelPrimaryValue(updated.agents?.defaults?.subagents?.model) ?? modelRaw}`);
+}
+//#endregion
+export { modelsAuthPasteTokenCommand as _, modelsImageFallbacksClearCommand as a, modelsAliasesListCommand as b, modelsFallbacksAddCommand as c, modelsFallbacksRemoveCommand as d, modelsAuthOrderClearCommand as f, modelsAuthLoginCommand as g, modelsAuthAddCommand as h, modelsImageFallbacksAddCommand as i, modelsFallbacksClearCommand as l, modelsAuthOrderSetCommand as m, modelsListCommand, modelsStatusCommand, modelsSetCommand as n, modelsImageFallbacksListCommand as o, modelsAuthOrderGetCommand as p, modelsScanCommand as r, modelsImageFallbacksRemoveCommand as s, modelsSetImageCommand as t, modelsFallbacksListCommand as u, modelsAuthSetupTokenCommand as v, modelsSubagentFallbacksAddCommand as w, modelsAliasesRemoveCommand as x, modelsAliasesAddCommand as y, modelsSubagentFallbacksRemoveCommand as z, modelsSubagentFallbacksClearCommand as A, modelsSubagentFallbacksListCommand as B, modelsSetSubagentCommand as C };

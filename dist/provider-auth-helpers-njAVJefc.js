@@ -105,14 +105,26 @@ function applyDefaultModelPrimaryUpdate(params) {
 	const nextModels = { ...params.cfg.agents?.defaults?.models };
 	const key = upsertCanonicalModelConfigEntry(nextModels, resolved);
 	const defaults = params.cfg.agents?.defaults ?? {};
-	const existing = toAgentModelListLike(defaults[params.field]);
+	const isSubagentField = params.field === "subagentModel";
+	const existing = toAgentModelListLike(isSubagentField ? defaults.subagents?.model : defaults[params.field]);
+	const nextValue = mergePrimaryFallbackConfig(existing, {
+		primary: key,
+		fallbacks: []
+	});
 	return {
 		...params.cfg,
 		agents: {
 			...params.cfg.agents,
 			defaults: {
 				...defaults,
-				[params.field]: mergePrimaryFallbackConfig(existing, { primary: key }),
+				...isSubagentField ? {
+					subagents: {
+						...defaults.subagents,
+						model: nextValue
+					}
+				} : {
+					[params.field]: nextValue
+				},
 				models: nextModels
 			}
 		}

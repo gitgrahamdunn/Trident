@@ -433,6 +433,193 @@ async function promptAuthConfig(cfg, runtime, prompter) {
 			next = applyModelFallbacksFromSelection(next, allowlistSelection.models);
 		}
 	}
+	next = await promptAgentModelDefaults(next, runtime, prompter, {
+		allowedKeys: anthropicOAuth ? ANTHROPIC_OAUTH_MODEL_KEYS : void 0,
+		preferredProvider: resolvePreferredProviderForAuthChoice({
+			choice: authChoice,
+			config: next
+		})
+	});
+	next = await promptSubagentModelDefaults(next, runtime, prompter, {
+		allowedKeys: anthropicOAuth ? ANTHROPIC_OAUTH_MODEL_KEYS : void 0,
+		preferredProvider: resolvePreferredProviderForAuthChoice({
+			choice: authChoice,
+			config: next
+		})
+	});
+	return next;
+}
+function resolveConfiguredPrimaryModel(cfg) {
+	const model = cfg.agents?.defaults?.model;
+	if (typeof model === "string") return model.trim() || void 0;
+	if (!model || typeof model !== "object") return;
+	return model.primary?.trim() || void 0;
+}
+function normalizeConfiguredModelKeys(values) {
+	const seen = /* @__PURE__ */ new Set();
+	const next = [];
+	for (const raw of values) {
+		const value = String(raw ?? "").trim();
+		if (!value || seen.has(value)) continue;
+		seen.add(value);
+		next.push(value);
+	}
+	return next;
+}
+function resolveConfiguredModelFallbacks(cfg, primary) {
+	const model = cfg.agents?.defaults?.model;
+	if (!model || typeof model !== "object" || !Array.isArray(model.fallbacks)) return [];
+	return normalizeConfiguredModelKeys(model.fallbacks.filter((value) => String(value ?? "").trim() !== primary));
+}
+function formatConfiguredModelDefaultsSummary(cfg) {
+	const primary = resolveConfiguredPrimaryModel(cfg);
+	const fallbacks = resolveConfiguredModelFallbacks(cfg, primary);
+	return [
+		`Primary: ${primary ?? "(not explicitly set)"}`,
+		`Fallbacks: ${fallbacks.length > 0 ? fallbacks.join(", ") : "(none)"}`
+	].join("\n");
+}
+function applyExplicitModelDefaults(cfg, primary, selectedModels) {
+	const ordered = normalizeConfiguredModelKeys([
+		primary,
+		...selectedModels
+	]);
+	const defaults = cfg.agents?.defaults;
+	const existingModels = defaults?.models ?? {};
+	const nextModels = {};
+	for (const key of ordered) nextModels[key] = existingModels[key] ?? {};
+	return {
+		...cfg,
+		agents: {
+			...cfg.agents,
+			defaults: {
+				...defaults,
+				model: {
+					primary,
+					...ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {}
+				},
+				models: nextModels
+			}
+		}
+	};
+}
+async function promptAgentModelDefaults(cfg, runtime, prompter, options = {}) {
+	await prompter.note([
+		"Choose the default agent model chain explicitly.",
+		"Fallback models are only used if the primary model fails.",
+		"",
+		formatConfiguredModelDefaultsSummary(cfg)
+	].join("\n"), "Agent model defaults");
+	let next = cfg;
+	const modelSelection = await promptDefaultModel({
+		config: next,
+		prompter,
+		allowKeep: Boolean(resolveConfiguredPrimaryModel(next)),
+		ignoreAllowlist: true,
+		includeProviderPluginSetups: true,
+		preferredProvider: options.preferredProvider,
+		workspaceDir: resolveDefaultAgentWorkspaceDir(),
+		runtime,
+		message: "Primary default model"
+	});
+	if (modelSelection.config) next = modelSelection.config;
+	if (modelSelection.model) next = applyPrimaryModel(next, modelSelection.model);
+	const primary = resolveConfiguredPrimaryModel(next);
+	if (!primary) return next;
+	const currentFallbacks = resolveConfiguredModelFallbacks(next, primary);
+	const selection = await promptModelAllowlist({
+		config: next,
+		prompter,
+		allowedKeys: options.allowedKeys,
+		initialSelections: [primary, ...currentFallbacks],
+		message: "Selected models (primary first, fallbacks after)"
+	});
+	if (selection.models) next = applyExplicitModelDefaults(next, primary, selection.models);
+	await prompter.note(formatConfiguredModelDefaultsSummary(next), "Selected model chain");
+	return next;
+}
+function resolveConfiguredSubagentPrimaryModel(cfg) {
+	const model = cfg.agents?.defaults?.subagents?.model;
+	if (typeof model === "string") return model.trim() || void 0;
+	if (!model || typeof model !== "object") return;
+	return model.primary?.trim() || void 0;
+}
+function resolveConfiguredSubagentFallbacks(cfg, primary) {
+	const model = cfg.agents?.defaults?.subagents?.model;
+	if (!model || typeof model !== "object" || !Array.isArray(model.fallbacks)) return [];
+	return normalizeConfiguredModelKeys(model.fallbacks.filter((value) => String(value ?? "").trim() !== primary));
+}
+function formatConfiguredSubagentDefaultsSummary(cfg) {
+	const primary = resolveConfiguredSubagentPrimaryModel(cfg) ?? resolveConfiguredPrimaryModel(cfg);
+	const fallbacks = resolveConfiguredSubagentPrimaryModel(cfg) ? resolveConfiguredSubagentFallbacks(cfg, primary) : [];
+	return [
+		`Primary: ${primary ?? "(inherits main default)"}`,
+		`Fallbacks: ${fallbacks.length > 0 ? fallbacks.join(", ") : resolveConfiguredSubagentPrimaryModel(cfg) ? "(none)" : "(inherits main default chain)"}`
+	].join("\n");
+}
+function applyExplicitSubagentModelDefaults(cfg, primary, selectedModels) {
+	const ordered = normalizeConfiguredModelKeys([
+		primary,
+		...selectedModels
+	]);
+	const defaults = cfg.agents?.defaults;
+	const existingModels = defaults?.models ?? {};
+	const nextModels = {};
+	for (const key of ordered) nextModels[key] = existingModels[key] ?? {};
+	return {
+		...cfg,
+		agents: {
+			...cfg.agents,
+			defaults: {
+				...defaults,
+				subagents: {
+					...defaults?.subagents,
+					model: {
+						primary,
+						...ordered.length > 1 ? { fallbacks: ordered.slice(1) } : {}
+					}
+				},
+				models: nextModels
+			}
+		}
+	};
+}
+async function promptSubagentModelDefaults(cfg, runtime, prompter, options = {}) {
+	await prompter.note([
+		"Choose the default model chain for spawned sub-agents.",
+		"If you do not set this explicitly, sub-agents can inherit the main agent model chain.",
+		"",
+		formatConfiguredSubagentDefaultsSummary(cfg)
+	].join("\n"), "Sub-agent model defaults");
+	let next = cfg;
+	const modelSelection = await promptDefaultModel({
+		config: next,
+		prompter,
+		allowKeep: Boolean(resolveConfiguredSubagentPrimaryModel(next)),
+		ignoreAllowlist: true,
+		includeProviderPluginSetups: true,
+		preferredProvider: options.preferredProvider,
+		workspaceDir: resolveDefaultAgentWorkspaceDir(),
+		runtime,
+		message: "Primary sub-agent model"
+	});
+	if (modelSelection.config) next = modelSelection.config;
+	if (modelSelection.model) next = applyExplicitSubagentModelDefaults(next, modelSelection.model, []);
+	const primary = resolveConfiguredSubagentPrimaryModel(next);
+	if (!primary) {
+		await prompter.note(formatConfiguredSubagentDefaultsSummary(next), "Selected sub-agent model chain");
+		return next;
+	}
+	const currentFallbacks = resolveConfiguredSubagentFallbacks(next, primary);
+	const selection = await promptModelAllowlist({
+		config: next,
+		prompter,
+		allowedKeys: options.allowedKeys,
+		initialSelections: [primary, ...currentFallbacks],
+		message: "Selected sub-agent models (primary first, fallbacks after)"
+	});
+	if (selection.models) next = applyExplicitSubagentModelDefaults(next, primary, selection.models);
+	await prompter.note(formatConfiguredSubagentDefaultsSummary(next), "Selected sub-agent model chain");
 	return next;
 }
 //#endregion
