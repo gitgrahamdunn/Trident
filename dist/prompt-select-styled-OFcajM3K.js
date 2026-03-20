@@ -114,8 +114,8 @@ async function maybeRemoveDeprecatedCliAuthProfiles(cfg, prompter) {
 	if (store.profiles["openai-codex:codex-cli"] || cfg.auth?.profiles?.["openai-codex:codex-cli"]) deprecated.add(CODEX_CLI_PROFILE_ID);
 	if (deprecated.size === 0) return cfg;
 	const lines = ["Deprecated external CLI auth profiles detected (no longer supported):"];
-	if (deprecated.has("anthropic:claude-cli")) lines.push(`- ${CLAUDE_CLI_PROFILE_ID} (Anthropic): use setup-token → ${formatCliCommand("openclaw models auth setup-token")}`);
-	if (deprecated.has("openai-codex:codex-cli")) lines.push(`- ${CODEX_CLI_PROFILE_ID} (OpenAI Codex): use OAuth → ${formatCliCommand("openclaw models auth login --provider openai-codex")}`);
+	if (deprecated.has("anthropic:claude-cli")) lines.push(`- ${CLAUDE_CLI_PROFILE_ID} (Anthropic): use setup-token → ${formatCliCommand("trident models auth setup-token")}`);
+	if (deprecated.has("openai-codex:codex-cli")) lines.push(`- ${CODEX_CLI_PROFILE_ID} (OpenAI Codex): use OAuth → ${formatCliCommand("trident models auth login --provider openai-codex")}`);
 	note$1(lines.join("\n"), "Auth profiles");
 	if (!await prompter.confirmRepair({
 		message: "Remove deprecated CLI auth profiles now?",
@@ -162,9 +162,9 @@ function resolveUnusableProfileHint(params) {
 }
 function formatAuthIssueHint(issue) {
 	if (issue.reasonCode === "invalid_expires") return "Invalid token expires metadata. Set a future Unix ms timestamp or remove expires.";
-	if (issue.provider === "anthropic" && issue.profileId === "anthropic:claude-cli") return `Deprecated profile. Use ${formatCliCommand("openclaw models auth setup-token")} or ${formatCliCommand("openclaw configure")}.`;
-	if (issue.provider === "openai-codex" && issue.profileId === "openai-codex:codex-cli") return `Deprecated profile. Use ${formatCliCommand("openclaw models auth login --provider openai-codex")} or ${formatCliCommand("openclaw configure")}.`;
-	return `Re-auth via \`${formatCliCommand("openclaw configure")}\` or \`${formatCliCommand("openclaw onboard")}\`.`;
+	if (issue.provider === "anthropic" && issue.profileId === "anthropic:claude-cli") return `Deprecated profile. Use ${formatCliCommand("trident models auth setup-token")} or ${formatCliCommand("trident configure")}.`;
+	if (issue.provider === "openai-codex" && issue.profileId === "openai-codex:codex-cli") return `Deprecated profile. Use ${formatCliCommand("trident models auth login --provider openai-codex")} or ${formatCliCommand("trident configure")}.`;
+	return `Re-auth via \`${formatCliCommand("trident configure")}\` or \`${formatCliCommand("trident onboard")}\`.`;
 }
 function formatAuthIssueLine(issue) {
 	const remaining = issue.remainingMs !== void 0 ? ` (${formatRemainingShort(issue.remainingMs)})` : "";
@@ -359,7 +359,7 @@ async function maybeRepairLegacyCronStore(params) {
 	note$1([
 		`Legacy cron job storage detected at ${shortenHomePath(storePath)}.`,
 		...previewLines,
-		`Repair with ${formatCliCommand("openclaw doctor --fix")} to normalize the store before the next scheduler run.`
+		`Repair with ${formatCliCommand("trident doctor --fix")} to normalize the store before the next scheduler run.`
 	].join("\n"), "Cron");
 	if (!await params.prompter.confirm({
 		message: "Repair legacy cron jobs now?",
@@ -405,10 +405,10 @@ function buildGatewayRuntimeHints(runtime, options = {}) {
 	if (runtime.cachedLabel && platform === "darwin") {
 		const label = resolveGatewayLaunchAgentLabel(env.OPENCLAW_PROFILE);
 		hints.push(`LaunchAgent label cached but plist missing. Clear with: launchctl bootout gui/$UID/${label}`);
-		hints.push(`Then reinstall: ${formatCliCommand("openclaw gateway install", env)}`);
+		hints.push(`Then reinstall: ${formatCliCommand("trident gateway install", env)}`);
 	}
 	if (runtime.missingUnit) {
-		hints.push(`Service not installed. Run: ${formatCliCommand("openclaw gateway install", env)}`);
+		hints.push(`Service not installed. Run: ${formatCliCommand("trident gateway install", env)}`);
 		if (fileLog) hints.push(`File logs: ${fileLog}`);
 		return hints;
 	}
@@ -570,7 +570,7 @@ async function maybeRepairGatewayDaemon(params) {
 	}
 	if (process.platform === "darwin") {
 		const label = resolveGatewayLaunchAgentLabel(process.env.OPENCLAW_PROFILE);
-		note$1(`LaunchAgent loaded; stopping requires "${formatCliCommand("openclaw gateway stop")}" or launchctl bootout gui/$UID/${label}.`, "Gateway");
+		note$1(`LaunchAgent loaded; stopping requires "${formatCliCommand("trident gateway stop")}" or launchctl bootout gui/$UID/${label}.`, "Gateway");
 	}
 	if (serviceRuntime?.status === "running") {
 		if (await params.prompter.confirmSkipInNonInteractive({
@@ -969,7 +969,7 @@ function noteSourceInstallIssues(root) {
 //#region src/commands/doctor-memory-search.ts
 /**
 * Check whether memory search has a usable embedding provider.
-* Runs as part of `openclaw doctor` — config-only, no network calls.
+* Runs as part of `trident doctor` — config-only, no network calls.
 */
 async function noteMemorySearchHealth(cfg, opts) {
 	const agentId = resolveDefaultAgentId(cfg);
@@ -994,7 +994,7 @@ async function noteMemorySearchHealth(cfg, opts) {
 						"but the gateway reports local embeddings are not ready.",
 						detail ? `Gateway probe: ${detail}` : null,
 						"",
-						`Verify: ${formatCliCommand("openclaw memory status --deep")}`
+						`Verify: ${formatCliCommand("trident memory status --deep")}`
 					].filter(Boolean).join("\n"), "Memory search");
 				}
 				return;
@@ -1004,9 +1004,9 @@ async function noteMemorySearchHealth(cfg, opts) {
 				"",
 				"Fix (pick one):",
 				`- Install node-llama-cpp and set a local model path in config`,
-				`- Switch to a remote provider: ${formatCliCommand("openclaw config set agents.defaults.memorySearch.provider openai")}`,
+				`- Switch to a remote provider: ${formatCliCommand("trident config set agents.defaults.memorySearch.provider openai")}`,
 				"",
-				`Verify: ${formatCliCommand("openclaw memory status --deep")}`
+				`Verify: ${formatCliCommand("trident memory status --deep")}`
 			].join("\n"), "Memory search");
 			return;
 		}
@@ -1015,7 +1015,7 @@ async function noteMemorySearchHealth(cfg, opts) {
 			note$1([
 				`Memory search provider is set to "${resolved.provider}" but the API key was not found in the CLI environment.`,
 				"The running gateway reports memory embeddings are ready for the default agent.",
-				`Verify: ${formatCliCommand("openclaw memory status --deep")}`
+				`Verify: ${formatCliCommand("trident memory status --deep")}`
 			].join("\n"), "Memory search");
 			return;
 		}
@@ -1028,10 +1028,10 @@ async function noteMemorySearchHealth(cfg, opts) {
 			"",
 			"Fix (pick one):",
 			`- Set ${envVar} in your environment`,
-			`- Configure credentials: ${formatCliCommand("openclaw configure --section model")}`,
-			`- To disable: ${formatCliCommand("openclaw config set agents.defaults.memorySearch.enabled false")}`,
+			`- Configure credentials: ${formatCliCommand("trident configure --section model")}`,
+			`- To disable: ${formatCliCommand("trident config set agents.defaults.memorySearch.enabled false")}`,
 			"",
-			`Verify: ${formatCliCommand("openclaw memory status --deep")}`
+			`Verify: ${formatCliCommand("trident memory status --deep")}`
 		].join("\n"), "Memory search");
 		return;
 	}
@@ -1046,7 +1046,7 @@ async function noteMemorySearchHealth(cfg, opts) {
 		note$1([
 			"Memory search provider is set to \"auto\" but the API key was not found in the CLI environment.",
 			"The running gateway reports memory embeddings are ready for the default agent.",
-			`Verify: ${formatCliCommand("openclaw memory status --deep")}`
+			`Verify: ${formatCliCommand("trident memory status --deep")}`
 		].join("\n"), "Memory search");
 		return;
 	}
@@ -1058,11 +1058,11 @@ async function noteMemorySearchHealth(cfg, opts) {
 		"",
 		"Fix (pick one):",
 		"- Set OPENAI_API_KEY, GEMINI_API_KEY, VOYAGE_API_KEY, or MISTRAL_API_KEY in your environment",
-		`- Configure credentials: ${formatCliCommand("openclaw configure --section model")}`,
+		`- Configure credentials: ${formatCliCommand("trident configure --section model")}`,
 		`- For local embeddings: configure agents.defaults.memorySearch.provider and local model path`,
-		`- To disable: ${formatCliCommand("openclaw config set agents.defaults.memorySearch.enabled false")}`,
+		`- To disable: ${formatCliCommand("trident config set agents.defaults.memorySearch.enabled false")}`,
 		"",
-		`Verify: ${formatCliCommand("openclaw memory status --deep")}`
+		`Verify: ${formatCliCommand("trident memory status --deep")}`
 	].join("\n"), "Memory search");
 }
 /**
@@ -1479,8 +1479,8 @@ function collectImplicitHeartbeatDirectPolicyWarnings(cfg) {
 }
 async function noteSecurityWarnings(cfg) {
 	const warnings = [];
-	const auditHint = `- Run: ${formatCliCommand("openclaw security audit --deep")}`;
-	if (cfg.approvals?.exec?.enabled === false) warnings.push("- Note: approvals.exec.enabled=false disables approval forwarding only.", "  Host exec gating still comes from ~/.openclaw/exec-approvals.json.", `  Check local policy with: ${formatCliCommand("openclaw approvals get --gateway")}`);
+	const auditHint = `- Run: ${formatCliCommand("trident security audit --deep")}`;
+	if (cfg.approvals?.exec?.enabled === false) warnings.push("- Note: approvals.exec.enabled=false disables approval forwarding only.", "  Host exec gating still comes from ~/.trident/exec-approvals.json.", `  Check local policy with: ${formatCliCommand("trident approvals get --gateway")}`);
 	warnings.push(...collectImplicitHeartbeatDirectPolicyWarnings(cfg));
 	const gatewayBind = cfg.gateway?.bind ?? "loopback";
 	const customBindHost = cfg.gateway?.customBindHost?.trim();
@@ -1507,11 +1507,11 @@ async function noteSecurityWarnings(cfg) {
 	const saferRemoteAccessLines = [
 		"  Safer remote access: keep bind loopback and use Tailscale Serve/Funnel or an SSH tunnel.",
 		"  Example tunnel: ssh -N -L 18789:127.0.0.1:18789 user@gateway-host",
-		"  Docs: https://docs.openclaw.ai/gateway/remote"
+		"  Docs: https://docs.trident.ai/gateway/remote"
 	];
 	if (isExposed) if (!hasSharedSecret) {
-		const authFixLines = resolvedAuth.mode === "password" ? [`  Fix: ${formatCliCommand("openclaw configure")} to set a password`, `  Or switch to token: ${formatCliCommand("openclaw config set gateway.auth.mode token")}`] : [`  Fix: ${formatCliCommand("openclaw doctor --fix")} to generate a token`, `  Or set token directly: ${formatCliCommand("openclaw config set gateway.auth.mode token")}`];
-		warnings.push(`- CRITICAL: Gateway bound to ${bindDescriptor} without authentication.`, `  Anyone on your network (or internet if port-forwarded) can fully control your agent.`, `  Fix: ${formatCliCommand("openclaw config set gateway.bind loopback")}`, ...saferRemoteAccessLines, ...authFixLines);
+		const authFixLines = resolvedAuth.mode === "password" ? [`  Fix: ${formatCliCommand("trident configure")} to set a password`, `  Or switch to token: ${formatCliCommand("trident config set gateway.auth.mode token")}`] : [`  Fix: ${formatCliCommand("trident doctor --fix")} to generate a token`, `  Or set token directly: ${formatCliCommand("trident config set gateway.auth.mode token")}`];
+		warnings.push(`- CRITICAL: Gateway bound to ${bindDescriptor} without authentication.`, `  Anyone on your network (or internet if port-forwarded) can fully control your agent.`, `  Fix: ${formatCliCommand("trident config set gateway.bind loopback")}`, ...saferRemoteAccessLines, ...authFixLines);
 	} else warnings.push(`- WARNING: Gateway bound to ${bindDescriptor} (network-accessible).`, `  Ensure your auth credentials are strong and not exposed.`, ...saferRemoteAccessLines);
 	const warnDmPolicy = async (params) => {
 		const dmPolicy = params.dmPolicy;
@@ -1536,7 +1536,7 @@ async function noteSecurityWarnings(cfg) {
 			warnings.push(`- ${params.label} DMs: locked (${policyPath}="${dmPolicy}") with no allowlist; unknown senders will be blocked / get a pairing code.`);
 			warnings.push(`  ${params.approveHint}`);
 		}
-		if (dmScope === "main" && isMultiUserDm) warnings.push(`- ${params.label} DMs: multiple senders share the main session; run: ` + formatCliCommand("openclaw config set session.dmScope \"per-channel-peer\"") + " (or \"per-account-channel-peer\" for multi-account channels) to isolate sessions.");
+		if (dmScope === "main" && isMultiUserDm) warnings.push(`- ${params.label} DMs: multiple senders share the main session; run: ` + formatCliCommand("trident config set session.dmScope \"per-channel-peer\"") + " (or \"per-account-channel-peer\" for multi-account channels) to isolate sessions.");
 	};
 	for (const plugin of listChannelPlugins()) {
 		if (!plugin.security) continue;
@@ -1617,7 +1617,7 @@ async function noteSessionLockHealth(params) {
 	const lines = [`- Found ${allLocks.length} session lock file${allLocks.length === 1 ? "" : "s"}.`, ...allLocks.toSorted((a, b) => a.lockPath.localeCompare(b.lockPath)).map(formatLockLine)];
 	if (staleCount > 0 && !shouldRepair) {
 		lines.push(`- ${staleCount} lock file${staleCount === 1 ? " is" : "s are"} stale.`);
-		lines.push("- Run \"openclaw doctor --fix\" to remove stale lock files automatically.");
+		lines.push("- Run \"trident doctor --fix\" to remove stale lock files automatically.");
 	}
 	if (shouldRepair && removedCount > 0) lines.push(`- Removed ${removedCount} stale session lock file${removedCount === 1 ? "" : "s"}.`);
 	note$1(lines.join("\n"), "Session locks");
@@ -1905,8 +1905,8 @@ async function noteStateIntegrity(cfg, prompter, configPath) {
 	if (cloudSyncedStateDir) warnings.push([
 		`- State directory is under macOS cloud-synced storage (${displayStateDir}; ${cloudSyncedStateDir.storage}).`,
 		"- This can cause slow I/O and sync/lock races for sessions and credentials.",
-		"- Prefer a local non-synced state dir (for example: ~/.openclaw).",
-		`  Set locally: OPENCLAW_STATE_DIR=~/.openclaw ${formatCliCommand("openclaw doctor")}`
+		"- Prefer a local non-synced state dir (for example: ~/.trident).",
+		`  Set locally: TRIDENT_STATE_DIR=~/.trident ${formatCliCommand("trident doctor")}`
 	].join("\n"));
 	if (linuxSdBackedStateDir) warnings.push(formatLinuxSdBackedStateDirWarning(displayStateDir, linuxSdBackedStateDir));
 	let stateDirExists = existsDir(stateDir);
@@ -2097,7 +2097,7 @@ function noteWorkspaceBackupTip(workspaceDir) {
 	if (fs.existsSync(gitMarker)) return;
 	note$1([
 		"- Tip: back up the workspace in a private git repo (GitHub or GitLab).",
-		"- Keep ~/.openclaw out of git; it contains credentials and session history.",
+		"- Keep ~/.trident out of git; it contains credentials and session history.",
 		"- Details: /concepts/agent-workspace#git-backup-recommended"
 	].join("\n"), "Workspace");
 }
@@ -2238,7 +2238,7 @@ async function maybeOfferUpdateBeforeDoctor(params) {
 			handled: false
 		};
 	}
-	if (git === "not-git") note$1(["This install is not a git checkout.", `Run \`${formatCliCommand("openclaw update")}\` to update via your package manager (npm/pnpm), then rerun doctor.`].join("\n"), "Update");
+	if (git === "not-git") note$1(["This install is not a git checkout.", `Run \`${formatCliCommand("trident update")}\` to update via your package manager (npm/pnpm), then rerun doctor.`].join("\n"), "Update");
 	return { updated: false };
 }
 //#endregion
@@ -2332,7 +2332,7 @@ async function doctorCommand(runtime = defaultRuntime, options = {}) {
 		options
 	});
 	printWizardHeader(runtime);
-	intro$1("OpenClaw doctor");
+	intro$1("Trident doctor");
 	const root = await resolveOpenClawPackageRoot({
 		moduleUrl: import.meta.url,
 		argv1: process.argv[1],
@@ -2360,17 +2360,17 @@ async function doctorCommand(runtime = defaultRuntime, options = {}) {
 	if (!cfg.gateway?.mode) {
 		const lines = [
 			"gateway.mode is unset; gateway start will be blocked.",
-			`Fix: run ${formatCliCommand("openclaw configure")} and set Gateway mode (local/remote).`,
-			`Or set directly: ${formatCliCommand("openclaw config set gateway.mode local")}`
+			`Fix: run ${formatCliCommand("trident configure")} and set Gateway mode (local/remote).`,
+			`Or set directly: ${formatCliCommand("trident config set gateway.mode local")}`
 		];
-		if (!fs.existsSync(configPath)) lines.push(`Missing config: run ${formatCliCommand("openclaw setup")} first.`);
+		if (!fs.existsSync(configPath)) lines.push(`Missing config: run ${formatCliCommand("trident setup")} first.`);
 		note$1(lines.join("\n"), "Gateway");
 	}
 	if (resolveMode(cfg) === "local" && hasAmbiguousGatewayAuthModeConfig(cfg)) note$1([
 		"gateway.auth.token and gateway.auth.password are both configured while gateway.auth.mode is unset.",
 		"Set an explicit mode to avoid ambiguous auth selection and startup/runtime failures.",
-		`Set token mode: ${formatCliCommand("openclaw config set gateway.auth.mode token")}`,
-		`Set password mode: ${formatCliCommand("openclaw config set gateway.auth.mode password")}`
+		`Set token mode: ${formatCliCommand("trident config set gateway.auth.mode token")}`,
+		`Set password mode: ${formatCliCommand("trident config set gateway.auth.mode password")}`
 	].join("\n"), "Gateway auth");
 	cfg = await maybeRepairAnthropicOAuthProfileId(cfg, prompter);
 	cfg = await maybeRemoveDeprecatedCliAuthProfiles(cfg, prompter);
@@ -2524,7 +2524,7 @@ async function doctorCommand(runtime = defaultRuntime, options = {}) {
 		logConfigUpdated(runtime);
 		const backupPath = `${CONFIG_PATH}.bak`;
 		if (fs.existsSync(backupPath)) runtime.log(`Backup: ${shortenHomePath(backupPath)}`);
-	} else if (!prompter.shouldRepair) runtime.log(`Run "${formatCliCommand("openclaw doctor --fix")}" to apply changes.`);
+	} else if (!prompter.shouldRepair) runtime.log(`Run "${formatCliCommand("trident doctor --fix")}" to apply changes.`);
 	if (options.workspaceSuggestions !== false) {
 		const workspaceDir = resolveAgentWorkspaceDir(cfg, resolveDefaultAgentId(cfg));
 		noteWorkspaceBackupTip(workspaceDir);

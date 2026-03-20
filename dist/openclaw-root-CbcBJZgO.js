@@ -3,7 +3,7 @@ import path from "node:path";
 import fs from "node:fs";
 import fs$1 from "node:fs/promises";
 //#region src/infra/openclaw-root.ts
-const CORE_PACKAGE_NAMES = new Set(["openclaw"]);
+const CORE_PACKAGE_NAMES = new Set(["openclaw", "trident", "trident-cli"]);
 function parsePackageName(raw) {
 	const parsed = JSON.parse(raw);
 	return typeof parsed.name === "string" ? parsed.name : null;

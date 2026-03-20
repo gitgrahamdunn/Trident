@@ -1957,7 +1957,7 @@ function detectEmptyAllowlistPolicy(cfg) {
 		const nestedAllowFrom = dm?.allowFrom;
 		const parentNestedAllowFrom = parentDm?.allowFrom;
 		const effectiveAllowFrom = topAllowFrom ?? nestedAllowFrom ?? parentNestedAllowFrom;
-		if (dmPolicy === "allowlist" && !hasAllowFromEntries(effectiveAllowFrom)) warnings.push(`- ${prefix}.dmPolicy is "allowlist" but allowFrom is empty — all DMs will be blocked. Add sender IDs to ${prefix}.allowFrom, or run "${formatCliCommand("openclaw doctor --fix")}" to auto-migrate from pairing store when entries exist.`);
+		if (dmPolicy === "allowlist" && !hasAllowFromEntries(effectiveAllowFrom)) warnings.push(`- ${prefix}.dmPolicy is "allowlist" but allowFrom is empty — all DMs will be blocked. Add sender IDs to ${prefix}.allowFrom, or run "${formatCliCommand("trident doctor --fix")}" to auto-migrate from pairing store when entries exist.`);
 		if ((account.groupPolicy ?? parent?.groupPolicy ?? void 0) === "allowlist" && usesSenderBasedGroupAllowlist(channelName)) {
 			const rawGroupAllowFrom = account.groupAllowFrom ?? parent?.groupAllowFrom;
 			const groupAllowFrom = hasAllowFromEntries(rawGroupAllowFrom) ? rawGroupAllowFrom : void 0;
@@ -2163,8 +2163,8 @@ async function maybeMigrateLegacyConfig() {
 	const changes = [];
 	const home = resolveHomeDir();
 	if (!home) return changes;
-	const targetDir = path.join(home, ".openclaw");
-	const targetPath = path.join(targetDir, "openclaw.json");
+	const targetDir = path.join(home, ".trident");
+	const targetPath = path.join(targetDir, "trident.json");
 	try {
 		await fs$1.access(targetPath);
 		return changes;
@@ -2218,7 +2218,7 @@ async function loadAndMaybeMigrateDoctorConfig(params) {
 		}
 		if (shouldRepair) {
 			if (migrated) cfg = migrated;
-		} else fixHints.push(`Run "${formatCliCommand("openclaw doctor --fix")}" to apply compatibility migrations.`);
+		} else fixHints.push(`Run "${formatCliCommand("trident doctor --fix")}" to apply compatibility migrations.`);
 	}
 	const normalized = normalizeCompatibilityConfigValues(candidate);
 	if (normalized.changes.length > 0) {
@@ -2226,7 +2226,7 @@ async function loadAndMaybeMigrateDoctorConfig(params) {
 		candidate = normalized.config;
 		pendingChanges = true;
 		if (shouldRepair) cfg = normalized.config;
-		else fixHints.push(`Run "${formatCliCommand("openclaw doctor --fix")}" to apply these changes.`);
+		else fixHints.push(`Run "${formatCliCommand("trident doctor --fix")}" to apply these changes.`);
 	}
 	const autoEnable = applyPluginAutoEnable({
 		config: candidate,
@@ -2237,7 +2237,7 @@ async function loadAndMaybeMigrateDoctorConfig(params) {
 		candidate = autoEnable.config;
 		pendingChanges = true;
 		if (shouldRepair) cfg = autoEnable.config;
-		else fixHints.push(`Run "${formatCliCommand("openclaw doctor --fix")}" to apply these changes.`);
+		else fixHints.push(`Run "${formatCliCommand("trident doctor --fix")}" to apply these changes.`);
 	}
 	const missingDefaultAccountBindingWarnings = collectMissingDefaultAccountBindingWarnings(candidate);
 	if (missingDefaultAccountBindingWarnings.length > 0) note(missingDefaultAccountBindingWarnings.join("\n"), "Doctor warnings");
@@ -2291,11 +2291,11 @@ async function loadAndMaybeMigrateDoctorConfig(params) {
 		if (safeBinProfileRepair.warnings.length > 0) note(safeBinProfileRepair.warnings.join("\n"), "Doctor warnings");
 	} else {
 		const hits = scanTelegramAllowFromUsernameEntries(candidate);
-		if (hits.length > 0) note([`- Telegram allowFrom contains ${hits.length} non-numeric entries (e.g. ${hits[0]?.entry ?? "@"}); Telegram authorization requires numeric sender IDs.`, `- Run "${formatCliCommand("openclaw doctor --fix")}" to auto-resolve @username entries to numeric IDs (requires a Telegram bot token).`].join("\n"), "Doctor warnings");
+		if (hits.length > 0) note([`- Telegram allowFrom contains ${hits.length} non-numeric entries (e.g. ${hits[0]?.entry ?? "@"}); Telegram authorization requires numeric sender IDs.`, `- Run "${formatCliCommand("trident doctor --fix")}" to auto-resolve @username entries to numeric IDs (requires a Telegram bot token).`].join("\n"), "Doctor warnings");
 		const discordHits = scanDiscordNumericIdEntries(candidate);
-		if (discordHits.length > 0) note([`- Discord allowlists contain ${discordHits.length} numeric entries (e.g. ${discordHits[0]?.path}=${discordHits[0]?.entry}).`, `- Discord IDs must be strings; run "${formatCliCommand("openclaw doctor --fix")}" to convert numeric IDs to quoted strings.`].join("\n"), "Doctor warnings");
+		if (discordHits.length > 0) note([`- Discord allowlists contain ${discordHits.length} numeric entries (e.g. ${discordHits[0]?.path}=${discordHits[0]?.entry}).`, `- Discord IDs must be strings; run "${formatCliCommand("trident doctor --fix")}" to convert numeric IDs to quoted strings.`].join("\n"), "Doctor warnings");
 		const allowFromScan = maybeRepairOpenPolicyAllowFrom(candidate);
-		if (allowFromScan.changes.length > 0) note([...allowFromScan.changes, `- Run "${formatCliCommand("openclaw doctor --fix")}" to add missing allowFrom wildcards.`].join("\n"), "Doctor warnings");
+		if (allowFromScan.changes.length > 0) note([...allowFromScan.changes, `- Run "${formatCliCommand("trident doctor --fix")}" to add missing allowFrom wildcards.`].join("\n"), "Doctor warnings");
 		const emptyAllowlistWarnings = detectEmptyAllowlistPolicy(candidate);
 		if (emptyAllowlistWarnings.length > 0) note(emptyAllowlistWarnings.join("\n"), "Doctor warnings");
 		const toolsBySenderHits = scanLegacyToolsBySenderKeys(candidate);
@@ -2305,7 +2305,7 @@ async function loadAndMaybeMigrateDoctorConfig(params) {
 			note([
 				`- Found ${toolsBySenderHits.length} legacy untyped toolsBySender key${toolsBySenderHits.length === 1 ? "" : "s"} (for example ${sampleLabel}).`,
 				"- Untyped sender keys are deprecated; use explicit prefixes (id:, e164:, username:, name:).",
-				`- Run "${formatCliCommand("openclaw doctor --fix")}" to migrate legacy keys to typed id: entries.`
+				`- Run "${formatCliCommand("trident doctor --fix")}" to migrate legacy keys to typed id: entries.`
 			].join("\n"), "Doctor warnings");
 		}
 		const safeBinCoverage = scanExecSafeBinCoverage(candidate);
@@ -2321,7 +2321,7 @@ async function loadAndMaybeMigrateDoctorConfig(params) {
 				for (const hit of customHits.slice(0, 5)) lines.push(`- ${hit.scopePath}.safeBins entry '${hit.bin}' is missing safeBinProfiles.${hit.bin}.`);
 				if (customHits.length > 5) lines.push(`- ${customHits.length - 5} more custom safeBins entries are missing profiles.`);
 			}
-			lines.push(`- Run "${formatCliCommand("openclaw doctor --fix")}" to scaffold missing custom safeBinProfiles entries.`);
+			lines.push(`- Run "${formatCliCommand("trident doctor --fix")}" to scaffold missing custom safeBinProfiles entries.`);
 			note(lines.join("\n"), "Doctor warnings");
 		}
 		const safeBinTrustedDirHints = scanExecSafeBinTrustedDirHints(candidate);
@@ -2357,7 +2357,7 @@ async function loadAndMaybeMigrateDoctorConfig(params) {
 			note(lines, "Doctor changes");
 		} else {
 			note(lines, "Unknown config keys");
-			fixHints.push("Run \"openclaw doctor --fix\" to remove these keys.");
+			fixHints.push("Run \"trident doctor --fix\" to remove these keys.");
 		}
 	}
 	if (!shouldRepair && pendingChanges) {

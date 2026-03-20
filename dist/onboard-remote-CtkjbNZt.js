@@ -82,7 +82,7 @@ async function promptRemoteGatewayConfig(cfg, prompter, options) {
 			await prompter.note([
 				"Start a tunnel before using the CLI:",
 				`ssh -N -L 18789:127.0.0.1:18789 <user>@${host}${selectedBeacon.sshPort ? ` -p ${selectedBeacon.sshPort}` : ""}`,
-				"Docs: https://docs.openclaw.ai/gateway/remote"
+				"Docs: https://docs.trident.ai/gateway/remote"
 			].join("\n"), "SSH tunnel");
 		}
 	}

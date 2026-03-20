@@ -970,7 +970,7 @@ function noteSourceInstallIssues(root) {
 //#region src/commands/doctor-memory-search.ts
 /**
 * Check whether memory search has a usable embedding provider.
-* Runs as part of `openclaw doctor` — config-only, no network calls.
+* Runs as part of `trident doctor` — config-only, no network calls.
 */
 async function noteMemorySearchHealth(cfg, opts) {
 	const agentId = resolveDefaultAgentId(cfg);

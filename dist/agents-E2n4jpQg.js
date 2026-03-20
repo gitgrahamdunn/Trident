@@ -886,7 +886,7 @@ async function agentsListCommand(opts, runtime = defaultRuntime) {
 	}
 	const lines = ["Agents:", ...summaries.map(formatSummary)];
 	lines.push("Routing rules map channel/account/peer to an agent. Use --bindings for full rules.");
-	lines.push(`Channel status reflects local config/creds. For live health: ${formatCliCommand("openclaw channels status --probe")}.`);
+	lines.push(`Channel status reflects local config/creds. For live health: ${formatCliCommand("trident channels status --probe")}.`);
 	runtime.log(lines.join("\n"));
 }
 //#endregion

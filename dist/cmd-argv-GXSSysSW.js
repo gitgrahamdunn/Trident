@@ -25,7 +25,7 @@ function buildPortHints(listeners, port) {
 	if (listeners.length === 0) return [];
 	const kinds = new Set(listeners.map((listener) => classifyPortListener(listener, port)));
 	const hints = [];
-	if (kinds.has("gateway")) hints.push(`Gateway already running locally. Stop it (${formatCliCommand("openclaw gateway stop")}) or use a different port.`);
+	if (kinds.has("gateway")) hints.push(`Gateway already running locally. Stop it (${formatCliCommand("trident gateway stop")}) or use a different port.`);
 	if (kinds.has("ssh")) hints.push("SSH tunnel already bound to this port. Close the tunnel or use a different local port in -L.");
 	if (kinds.has("unknown")) hints.push("Another process is listening on this port.");
 	if (listeners.length > 1) hints.push("Multiple listeners detected; ensure only one gateway/tunnel per port unless intentionally running isolated profiles.");

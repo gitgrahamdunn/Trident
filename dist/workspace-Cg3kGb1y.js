@@ -1324,7 +1324,7 @@ async function runCommandWithTimeout(argv, optionsOrTimeout) {
 }
 //#endregion
 //#region src/infra/openclaw-root.ts
-const CORE_PACKAGE_NAMES = new Set(["openclaw", "trident"]);
+const CORE_PACKAGE_NAMES = new Set(["openclaw", "trident", "trident-cli"]);
 function parsePackageName(raw) {
 	const parsed = JSON.parse(raw);
 	return typeof parsed.name === "string" ? parsed.name : null;

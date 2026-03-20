@@ -103,11 +103,12 @@ async function setupCommand(opts, runtime = defaultRuntime) {
 //#endregion
 //#region src/cli/program/register.setup.ts
 function registerSetupCommand(program) {
-	program.command("setup").description("Initialize ~/.trident/trident.json and the agent workspace").addHelpText("after", () => `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/setup", "github.com/gitgrahamdunn/trident-cli/tree/main/docs/cli/setup")}\n`).option("--workspace <dir>", "Agent workspace directory (default: ~/.trident/workspace; stored as agents.defaults.workspace)").option("--wizard", "Run the interactive onboarding wizard", false).option("--non-interactive", "Run the wizard without prompts", false).option("--mode <mode>", "Wizard mode: local|remote").option("--remote-url <url>", "Remote Gateway WebSocket URL").option("--remote-token <token>", "Remote Gateway token (optional)").action(async (opts, command) => {
+	program.command("setup").description("Initialize ~/.trident/trident.json and the agent workspace").addHelpText("after", () => `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/setup", "github.com/gitgrahamdunn/trident-cli/tree/main/docs/cli/setup")}\n`).option("--workspace <dir>", "Agent workspace directory (default: ~/.trident/workspace; stored as agents.defaults.workspace)").option("--wizard", "Run the interactive onboarding wizard", false).option("--non-interactive", "Run the wizard without prompts", false).option("--accept-risk", "Acknowledge onboarding risk when using --non-interactive", false).option("--mode <mode>", "Wizard mode: local|remote").option("--remote-url <url>", "Remote Gateway WebSocket URL").option("--remote-token <token>", "Remote Gateway token (optional)").action(async (opts, command) => {
 		await runCommandWithRuntime(defaultRuntime, async () => {
 			const hasWizardFlags = hasExplicitOptions(command, [
 				"wizard",
 				"nonInteractive",
+				"acceptRisk",
 				"mode",
 				"remoteUrl",
 				"remoteToken"
@@ -116,6 +117,7 @@ function registerSetupCommand(program) {
 				await onboardCommand({
 					workspace: opts.workspace,
 					nonInteractive: Boolean(opts.nonInteractive),
+					acceptRisk: Boolean(opts.acceptRisk),
 					mode: opts.mode,
 					remoteUrl: opts.remoteUrl,
 					remoteToken: opts.remoteToken

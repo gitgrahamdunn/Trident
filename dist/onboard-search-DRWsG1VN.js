@@ -161,7 +161,7 @@ async function setupSearch(config, _runtime, prompter, opts) {
 	await prompter.note([
 		"Web search lets your agent look things up online.",
 		"Choose a provider and paste your API key.",
-		"Docs: https://docs.openclaw.ai/tools/web"
+		"Docs: https://docs.trident.ai/tools/web"
 	].join("\n"), "Web search");
 	const existingProvider = config.tools?.web?.search?.provider;
 	const options = SEARCH_PROVIDER_OPTIONS.map((entry) => {
@@ -183,7 +183,7 @@ async function setupSearch(config, _runtime, prompter, opts) {
 		options: [...options, {
 			value: "__skip__",
 			label: "Skip for now",
-			hint: "Configure later with openclaw configure --section web"
+			hint: "Configure later with trident configure --section web"
 		}],
 		initialValue: defaultProvider
 	});
@@ -197,10 +197,10 @@ async function setupSearch(config, _runtime, prompter, opts) {
 		if (keyConfigured) return preserveDisabledState(config, applyProviderOnly(config, choice));
 		const ref = buildSearchEnvRef(choice);
 		await prompter.note([
-			"Secret references enabled — OpenClaw will store a reference instead of the API key.",
+			"Secret references enabled — Trident will store a reference instead of the API key.",
 			`Env var: ${ref.id}${envAvailable ? " (detected)" : ""}.`,
 			...envAvailable ? [] : [`Set ${ref.id} in the Gateway environment.`],
-			"Docs: https://docs.openclaw.ai/tools/web"
+			"Docs: https://docs.trident.ai/tools/web"
 		].join("\n"), "Web search");
 		return applySearchKey(config, choice, ref);
 	}
@@ -214,7 +214,7 @@ async function setupSearch(config, _runtime, prompter, opts) {
 	await prompter.note([
 		"No API key stored — web_search won't work until a key is available.",
 		`Get your key at: ${entry.signupUrl}`,
-		"Docs: https://docs.openclaw.ai/tools/web"
+		"Docs: https://docs.trident.ai/tools/web"
 	].join("\n"), "Web search");
 	return {
 		...config,

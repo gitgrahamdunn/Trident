@@ -172,7 +172,7 @@ async function removeChannelConfigWizard(cfg, runtime) {
 	while (true) {
 		const configured = listConfiguredChannels();
 		if (configured.length === 0) {
-			note$1(["No channel config found in openclaw.json.", `Tip: \`${formatCliCommand("openclaw channels status")}\` shows what is configured and enabled.`].join("\n"), "Remove channel");
+			note$1(["No channel config found in trident.json.", `Tip: \`${formatCliCommand("trident channels status")}\` shows what is configured and enabled.`].join("\n"), "Remove channel");
 			return next;
 		}
 		const channel = guardCancel(await select$1({
@@ -590,7 +590,7 @@ async function promptGatewayConfig(cfg, runtime) {
 			"Only requests from specified proxy IPs will be trusted.",
 			"",
 			"Common use cases: Pomerium, Caddy + OAuth, Traefik + forward auth",
-			"Docs: https://docs.openclaw.ai/gateway/trusted-proxy-auth"
+			"Docs: https://docs.trident.ai/gateway/trusted-proxy-auth"
 		].join("\n"), "Trusted Proxy Auth");
 		const userHeader = guardCancel(await text$1({
 			message: "Header containing user identity",
@@ -705,8 +705,8 @@ async function runGatewayHealthCheck(params) {
 		params.runtime.error(formatHealthCheckFailure(err));
 		note$1([
 			"Docs:",
-			"https://docs.openclaw.ai/gateway/health",
-			"https://docs.openclaw.ai/gateway/troubleshooting"
+			"https://docs.trident.ai/gateway/health",
+			"https://docs.trident.ai/gateway/troubleshooting"
 		].join("\n"), "Health check help");
 	}
 }
@@ -731,7 +731,7 @@ async function promptChannelMode(runtime) {
 		}, {
 			value: "remove",
 			label: "Remove channel config",
-			hint: "Delete channel tokens/settings from openclaw.json"
+			hint: "Delete channel tokens/settings from trident.json"
 		}],
 		initialValue: "configure"
 	}), runtime);
@@ -753,7 +753,7 @@ async function promptWebToolsConfig(nextConfig, runtime) {
 	note$1([
 		"Web search lets your agent look things up online using the `web_search` tool.",
 		"Choose a provider and paste your API key.",
-		"Docs: https://docs.openclaw.ai/tools/web"
+		"Docs: https://docs.trident.ai/tools/web"
 	].join("\n"), "Web search");
 	const enableSearch = guardCancel(await confirm$1({
 		message: "Enable web_search?",
@@ -796,7 +796,7 @@ async function promptWebToolsConfig(nextConfig, runtime) {
 			"No key stored yet — web_search won't work until a key is available.",
 			`Store a key here or set ${envVarNames} in the Gateway environment.`,
 			`Get your API key at: ${entry.signupUrl}`,
-			"Docs: https://docs.openclaw.ai/tools/web"
+			"Docs: https://docs.trident.ai/tools/web"
 		].join("\n"), "Web search");
 	}
 	const enableFetch = guardCancel(await confirm$1({
@@ -822,7 +822,7 @@ async function promptWebToolsConfig(nextConfig, runtime) {
 async function runConfigureWizard(opts, runtime = defaultRuntime) {
 	try {
 		printWizardHeader(runtime);
-		intro$1(opts.command === "update" ? "OpenClaw update wizard" : "OpenClaw configure");
+		intro$1(opts.command === "update" ? "Trident update wizard" : "Trident configure");
 		const prompter = createClackPrompter();
 		const snapshot = await readConfigFileSnapshot();
 		const baseConfig = snapshot.valid ? snapshot.config : {};
@@ -832,10 +832,10 @@ async function runConfigureWizard(opts, runtime = defaultRuntime) {
 			if (!snapshot.valid && snapshot.issues.length > 0) note$1([
 				...snapshot.issues.map((iss) => `- ${iss.path}: ${iss.message}`),
 				"",
-				"Docs: https://docs.openclaw.ai/gateway/configuration"
+				"Docs: https://docs.trident.ai/gateway/configuration"
 			].join("\n"), "Config issues");
 			if (!snapshot.valid) {
-				outro$1(`Config invalid. Run \`${formatCliCommand("openclaw doctor")}\` to repair it, then re-run configure.`);
+				outro$1(`Config invalid. Run \`${formatCliCommand("trident doctor")}\` to repair it, then re-run configure.`);
 				runtime.exit(1);
 				return;
 			}
@@ -1093,7 +1093,7 @@ async function runConfigureWizard(opts, runtime = defaultRuntime) {
 			`Web UI: ${links.httpUrl}`,
 			`Gateway WS: ${links.wsUrl}`,
 			gatewayStatusLine,
-			"Docs: https://docs.openclaw.ai/web/control-ui"
+			"Docs: https://docs.trident.ai/web/control-ui"
 		].join("\n"), "Control UI");
 		outro$1("Configure complete.");
 	} catch (err) {

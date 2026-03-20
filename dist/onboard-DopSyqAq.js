@@ -441,7 +441,7 @@ async function runNonInteractiveOnboardingLocal(params) {
 		skipSkills: Boolean(opts.skipSkills),
 		skipHealth: Boolean(opts.skipHealth)
 	});
-	if (!opts.json) runtime.log(`Tip: run \`${formatCliCommand("openclaw configure --section web")}\` to store your Brave API key for web_search. Docs: https://docs.openclaw.ai/tools/web`);
+	if (!opts.json) runtime.log(`Tip: run \`${formatCliCommand("trident configure --section web")}\` to store your Brave API key for web_search. Docs: https://docs.trident.ai/tools/web`);
 }
 //#endregion
 //#region src/commands/onboard-non-interactive/remote.ts
@@ -480,7 +480,7 @@ async function runNonInteractiveOnboardingRemote(params) {
 	else {
 		runtime.log(`Remote gateway: ${remoteUrl}`);
 		runtime.log(`Auth: ${payload.auth}`);
-		runtime.log(`Tip: run \`${formatCliCommand("openclaw configure --section web")}\` to store your Brave API key for web_search. Docs: https://docs.openclaw.ai/tools/web`);
+		runtime.log(`Tip: run \`${formatCliCommand("trident configure --section web")}\` to store your Brave API key for web_search. Docs: https://docs.trident.ai/tools/web`);
 	}
 }
 //#endregion
@@ -550,8 +550,8 @@ async function onboardCommand(opts, runtime = defaultRuntime) {
 	if (normalizedOpts.nonInteractive && normalizedOpts.acceptRisk !== true) {
 		runtime.error([
 			"Non-interactive onboarding requires explicit risk acknowledgement.",
-			"Read: https://docs.openclaw.ai/security",
-			`Re-run with: ${formatCliCommand("openclaw onboard --non-interactive --accept-risk ...")}`
+			"Read: https://docs.trident.ai/security",
+			`Re-run with: ${formatCliCommand("trident onboard --non-interactive --accept-risk ...")}`
 		].join("\n"));
 		runtime.exit(1);
 		return;

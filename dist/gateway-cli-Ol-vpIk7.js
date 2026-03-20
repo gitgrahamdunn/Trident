@@ -24610,7 +24610,7 @@ async function runGatewayCommand$1(opts) {
 	} catch (err) {
 		if (err instanceof GatewayLockError || err && typeof err === "object" && err.name === "GatewayLockError") {
 			const errMessage = describeUnknownError(err);
-			defaultRuntime.error(`Gateway failed to start: ${errMessage}\nIf the gateway is supervised, stop it with: ${formatCliCommand("openclaw gateway stop")}`);
+			defaultRuntime.error(`Gateway failed to start: ${errMessage}\nIf the gateway is supervised, stop it with: ${formatCliCommand("trident gateway stop")}`);
 			try {
 				const diagnostics = await inspectPortUsage(port);
 				if (diagnostics.status === "busy") for (const line of formatPortDiagnostics(diagnostics)) defaultRuntime.error(line);
